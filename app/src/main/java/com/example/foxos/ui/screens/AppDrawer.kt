@@ -22,19 +22,47 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.foxos.ui.components.AppIcon
+import com.example.foxos.ui.components.HarmonyBackground
+import com.example.foxos.ui.components.HarmonyAppIcon
 import com.example.foxos.ui.theme.FoxLauncherTheme
 import com.example.foxos.viewmodel.LauncherViewModel
+import com.example.foxos.service.FoxNotificationService
+import androidx.compose.animation.core.animateFloat
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import android.view.SoundEffectConstants
 
 @Composable
 fun AppDrawer(
     viewModel: LauncherViewModel,
-    onCloseDrawer: () -> Unit
+    onCloseDrawer: () -> Unit,
+    gridColumns: Int = 4,
+    showLabels: Boolean = true,
+    hapticEnabled: Boolean = true,
+    iconShape: String = "rounded_square",
+    onHideApp: ((String) -> Unit)? = null,
+    wallpaperId: String = "pastel"
 ) {
     val apps by viewModel.filteredApps.collectAsState()
+    val suggestedApps by viewModel.suggestedApps.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val notificationBadges by FoxNotificationService.notificationBadges.collectAsState()
     val colors = FoxLauncherTheme.colors
     val listState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
+
+    // Immersive scroll soundbed
+    LaunchedEffect(listState.firstVisibleItemIndex, hapticEnabled) {
+        if (listState.firstVisibleItemIndex > 0 && hapticEnabled) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            // Use a subtle sound for scroll if desired, we'll use NAVIGATION_DOWN or simply CLICK
+            view.playSoundEffect(SoundEffectConstants.NAVIGATION_DOWN)
+        }
+    }
 
     // Professional state reset: Clear search whenever we enter the drawer
     LaunchedEffect(Unit) {
@@ -46,33 +74,84 @@ fun AppDrawer(
             .toSortedMap()
     }
 
-    // High-performance nested scroll logic for swipe-down-to-close
-    // This ensures scrolling is unaffected unless you're at the very top
+    // Microsoft-style nested scroll: swipe DOWN to close when at top of list
+    // This allows normal scrolling but closes drawer on over-scroll at top
+    var accumulatedOverscroll by remember { mutableStateOf(0f) }
+    var isClosing by remember { mutableStateOf(false) }
+    
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // If we are scrolling down (available.y > 0) and at the top of the list
-                if (available.y > 50f && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                if (isClosing) return available // Prevent further processing while closing
+                
+                // When at top of list and trying to scroll further down (swipe down gesture)
+                val isAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 5
+                
+                if (isAtTop && available.y > 0) {
+                    // User is swiping DOWN while at top - accumulate overscroll
+                    accumulatedOverscroll += available.y
+                    if (accumulatedOverscroll > 80f) {
+                        // Threshold reached - close drawer
+                        isClosing = true
+                        onCloseDrawer()
+                        return available
+                    }
+                    // Consume the scroll to prevent bouncing but allow accumulation
+                    return available
+                }
+                
+                // Reset overscroll accumulator when scrolling up or not at top
+                if (available.y < 0 || !isAtTop) {
+                    accumulatedOverscroll = 0f
+                }
+                
+                return Offset.Zero
+            }
+            
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (isClosing) return available
+                
+                // Also check for fling gestures when at top
+                val isAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 5
+                
+                if (isAtTop && available.y > 500f) {
+                    // Fast downward fling at top - close immediately
+                    isClosing = true
                     onCloseDrawer()
                     return available
                 }
-                return Offset.Zero
+                
+                return Velocity.Zero
+            }
+            
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                // Reset on fling end
+                accumulatedOverscroll = 0f
+                return super.onPostFling(consumed, available)
             }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .nestedScroll(nestedScrollConnection)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        // Search Section
-        Row(
+    Box(modifier = Modifier.fillMaxSize()) {
+        HarmonyBackground(wallpaperId = wallpaperId)
+        
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 16.dp, bottom = 8.dp),
+                .fillMaxSize()
+                .nestedScroll(nestedScrollConnection)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            // Search Section with Glass Header
+            com.example.foxos.ui.components.GlassPanel(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White.copy(alpha = 0.6f),
+                blurRadius = 30.dp
+            ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
@@ -93,9 +172,10 @@ fun AppDrawer(
             IconButton(onClick = onCloseDrawer) {
                 Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.onSurface)
             }
-        }
+            }
+            } // Closes GlassPanel
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
         // App Grid optimized for 120Hz scrolling
         LazyColumn(
@@ -104,6 +184,54 @@ fun AppDrawer(
             contentPadding = PaddingValues(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Suggested Apps Section
+            if (searchQuery.isEmpty() && suggestedApps.isNotEmpty()) {
+                item(key = "header_suggestions") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Suggestions",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                color = colors.primary,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.padding(start = 8.dp, end = 16.dp)
+                        )
+                        HorizontalDivider(color = colors.onSurface.copy(alpha = 0.1f), thickness = 0.5.dp)
+                    }
+                }
+                
+                item(key = "suggestions_row") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        suggestedApps.take(gridColumns).forEach { app ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                val iconBitmap = androidx.compose.runtime.remember(app.packageName) {
+                                    app.icon?.let { it.toBitmap().asImageBitmap() }
+                                }
+                                HarmonyAppIcon(
+                                    icon = iconBitmap,
+                                    label = app.label,
+                                    onClick = { viewModel.launchApp(app.packageName) },
+                                    showLabel = showLabels,
+                                    iconShape = iconShape,
+                                    packageName = app.packageName,
+                                    onHideApp = onHideApp,
+                                    badgeCount = notificationBadges[app.packageName] ?: 0
+                                )
+                            }
+                        }
+                        repeat(gridColumns - minOf(gridColumns, suggestedApps.size)) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
             groupedApps.forEach { (initial, appsInGroup) ->
                 item(key = "header_$initial") {
                     Row(
@@ -123,7 +251,7 @@ fun AppDrawer(
                     }
                 }
 
-                val chunks = appsInGroup.chunked(4)
+                val chunks = appsInGroup.chunked(gridColumns)
                 items(chunks, key = { "${initial}_${it.first().packageName}" }) { chunk ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -131,22 +259,32 @@ fun AppDrawer(
                     ) {
                         chunk.forEach { app ->
                             Box(modifier = Modifier.weight(1f)) {
-                                AppIcon(
-                                    app = app,
+                                val iconBitmap = androidx.compose.runtime.remember(app.packageName) {
+                                    app.icon?.let { it.toBitmap().asImageBitmap() }
+                                }
+                                HarmonyAppIcon(
+                                    icon = iconBitmap,
+                                    label = app.label,
                                     onClick = { 
                                         viewModel.launchApp(app.packageName)
                                         // Auto-clear for next entry
                                         viewModel.clearSearchQuery()
-                                    }
+                                    },
+                                    showLabel = showLabels,
+                                    iconShape = iconShape,
+                                    packageName = app.packageName,
+                                    onHideApp = onHideApp,
+                                    badgeCount = notificationBadges[app.packageName] ?: 0
                                 )
                             }
                         }
-                        repeat(4 - chunk.size) {
+                        repeat(gridColumns - chunk.size) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
             }
+        }
         }
     }
 }

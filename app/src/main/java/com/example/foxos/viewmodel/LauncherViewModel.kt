@@ -4,68 +4,126 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.foxos.data.LauncherRepository
-import com.example.foxos.data.UsageRepository
-import com.example.foxos.model.AppCategory
+import com.example.foxos.data.SettingsRepository
 import com.example.foxos.model.AppInfo
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.*
+
+sealed class LaunchEvent {
+    data class DirectLaunch(val packageName: String) : LaunchEvent()
+    data class RequireBiometric(val packageName: String) : LaunchEvent()
+}
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
-
     private val repository = LauncherRepository(application)
-    private val usageRepository = UsageRepository(application)
-
-    private val _allApps = MutableStateFlow<List<AppInfo>>(emptyList())
-    val allApps: StateFlow<List<AppInfo>> = _allApps.asStateFlow()
+    private val settingsRepository = SettingsRepository(application)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _isStudyModeActive = MutableStateFlow(false)
-    val isStudyModeActive: StateFlow<Boolean> = _isStudyModeActive.asStateFlow()
+    private val _launchEvents = MutableSharedFlow<LaunchEvent>()
+    val launchEvents: SharedFlow<LaunchEvent> = _launchEvents.asSharedFlow()
 
-    // AI Suggestions based on usage and time
-    val suggestedApps: StateFlow<List<AppInfo>> = combine(_allApps, _isStudyModeActive) { apps, studyMode ->
-        val usageStats = usageRepository.getAppUsageStats().take(5).map { it.packageName }
-        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        
-        apps.filter { app ->
-            if (studyMode) app.category == AppCategory.STUDY
-            else usageStats.contains(app.packageName) || isTimeRelevant(app, hour)
-        }.take(5)
-    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val lockedApps: StateFlow<Set<String>> = settingsRepository.lockedApps.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptySet()
+    )
 
-    val filteredApps: StateFlow<List<AppInfo>> = combine(_allApps, _searchQuery, _isStudyModeActive) { apps, query, studyMode ->
-        var result = if (studyMode) {
-            apps.filter { it.category == AppCategory.STUDY }
-        } else {
+    val hiddenApps: StateFlow<Set<String>> = settingsRepository.hiddenApps.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptySet()
+    )
+
+    val allApps: StateFlow<List<AppInfo>> = repository.getInstalledApps().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
+
+    // Apps visible in drawer (excluding hidden ones)
+    val visibleApps: StateFlow<List<AppInfo>> = combine(allApps, hiddenApps) { apps, hidden ->
+        apps.filter { it.packageName !in hidden }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
+
+    val filteredApps: StateFlow<List<AppInfo>> = combine(visibleApps, _searchQuery) { apps, query ->
+        if (query.isBlank()) {
             apps
+        } else {
+            val queryLower = query.lowercase()
+            apps.filter { app ->
+                // Match by label (name)
+                app.label.lowercase().contains(queryLower) ||
+                // Match by package name
+                app.packageName.lowercase().contains(queryLower) ||
+                // Fuzzy match - all letters appear in order
+                fuzzyMatch(app.label.lowercase(), queryLower)
+            }.sortedBy { app ->
+                // Prioritize exact prefix matches
+                when {
+                    app.label.lowercase().startsWith(queryLower) -> 0
+                    app.label.lowercase().contains(queryLower) -> 1
+                    else -> 2
+                }
+            }
         }
-        
-        if (query.isNotEmpty()) {
-            result = result.filter { it.label.contains(query, ignoreCase = true) }
-        }
-        result
-    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
 
-    init {
-        refreshApps()
+    // Helper function for fuzzy matching (all query chars appear in order)
+    private fun fuzzyMatch(text: String, query: String): Boolean {
+        var queryIndex = 0
+        for (char in text) {
+            if (queryIndex < query.length && char == query[queryIndex]) {
+                queryIndex++
+            }
+        }
+        return queryIndex == query.length
     }
 
-    private fun isTimeRelevant(app: AppInfo, hour: Int): Boolean {
-        return when {
-            hour in 8..17 && app.category == AppCategory.STUDY -> true
-            hour > 20 && app.category == AppCategory.SOCIAL -> true
-            else -> false
-        }
-    }
+    private val topUsedPackages: StateFlow<Set<String>> = settingsRepository.topUsedApps.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptySet()
+    )
 
-    fun refreshApps() {
-        viewModelScope.launch {
-            _allApps.value = repository.getInstalledApps()
+    val suggestedApps: StateFlow<List<AppInfo>> = combine(allApps, topUsedPackages) { apps, topPkgs ->
+        if (topPkgs.isNotEmpty()) {
+            // Real neural usage order: sort installed apps by known top packages first
+            val topApps = apps.filter { it.packageName in topPkgs }
+            val remainder = apps.filter { it.packageName !in topPkgs }.take(8 - topApps.size)
+            (topApps + remainder).take(8)
+        } else {
+            apps.take(8)
         }
-    }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
+
+    val predictedApps: StateFlow<Set<String>> = suggestedApps.map { apps ->
+        // Simulate "AI Sentiment" by highlighting the first two suggested apps as "Highly likely"
+        apps.take(2).map { it.packageName }.toSet()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptySet()
+    )
+
+    val isStudyModeActive: StateFlow<Boolean> = settingsRepository.isStudyModeEnabled.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = false
+    )
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -75,11 +133,42 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _searchQuery.value = ""
     }
 
-    fun toggleStudyMode() {
-        _isStudyModeActive.value = !_isStudyModeActive.value
+    fun launchApp(packageName: String) {
+        viewModelScope.launch {
+            if (lockedApps.value.contains(packageName)) {
+                _launchEvents.emit(LaunchEvent.RequireBiometric(packageName))
+            } else {
+                repository.launchApp(packageName)
+                _launchEvents.emit(LaunchEvent.DirectLaunch(packageName))
+            }
+        }
     }
 
-    fun launchApp(packageName: String) {
+    fun launchAppDirectly(packageName: String) {
         repository.launchApp(packageName)
+    }
+
+    fun toggleAppLock(packageName: String, isLocked: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleAppLock(packageName, isLocked)
+        }
+    }
+
+    fun hideApp(packageName: String) {
+        viewModelScope.launch {
+            settingsRepository.toggleAppHidden(packageName, true)
+        }
+    }
+
+    fun unhideApp(packageName: String) {
+        viewModelScope.launch {
+            settingsRepository.toggleAppHidden(packageName, false)
+        }
+    }
+
+    fun toggleStudyMode() {
+        viewModelScope.launch {
+            settingsRepository.setStudyMode(!isStudyModeActive.value)
+        }
     }
 }

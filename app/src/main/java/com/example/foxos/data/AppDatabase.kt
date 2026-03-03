@@ -8,12 +8,15 @@ import com.example.foxos.model.AppPair
 import com.example.foxos.model.CustomGesture
 import com.example.foxos.model.QuickShortcut
 
-@Database(entities = [Task::class, AppPair::class, CustomGesture::class, QuickShortcut::class], version = 4, exportSchema = false)
+@Database(entities = [Task::class, AppPair::class, CustomGesture::class, QuickShortcut::class, Note::class, Exam::class, Assignment::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun appPairDao(): AppPairDao
     abstract fun gestureDao(): GestureDao
     abstract fun quickShortcutDao(): QuickShortcutDao
+    abstract fun noteDao(): NoteDao
+    abstract fun examDao(): ExamDao
+    abstract fun assignmentDao(): AssignmentDao
 
     companion object {
         @Volatile

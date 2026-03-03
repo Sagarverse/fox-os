@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.NightlightRound
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +28,8 @@ import com.example.foxos.ui.components.AppIcon
 import com.example.foxos.ui.components.GlassCard
 import com.example.foxos.viewmodel.LauncherViewModel
 import com.example.foxos.viewmodel.QuickShortcutViewModel
+import com.example.foxos.viewmodel.ContextViewModel
+import com.example.foxos.viewmodel.UserContext
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -32,6 +38,7 @@ import kotlin.math.roundToInt
 fun LockScreen(
     launcherViewModel: LauncherViewModel,
     shortcutViewModel: QuickShortcutViewModel,
+    contextViewModel: ContextViewModel,
     onUnlock: () -> Unit
 ) {
     val shortcuts by shortcutViewModel.shortcuts.collectAsState()
@@ -56,13 +63,20 @@ fun LockScreen(
         }
     }
 
+    val currentContext by contextViewModel.currentContext.collectAsState()
+
+    val (bgColors, greeting, contextIcon) = when (currentContext) {
+        UserContext.HOME -> Triple(listOf(Color(0xFF0B0D17), Color(0xFF1A1C2E)), "Welcome Home", Icons.Default.Home)
+        UserContext.WORK -> Triple(listOf(Color(0xFF1E3C72), Color(0xFF2A5298)), "Focus Mode Active", Icons.Default.Work)
+        UserContext.COMMUTING -> Triple(listOf(Color(0xFF232526), Color(0xFF414345)), "Safe Travels", Icons.Default.DirectionsCar)
+        UserContext.SLEEPING -> Triple(listOf(Color(0xFF000000), Color(0xFF0f2027)), "Time to Rest", Icons.Default.NightlightRound)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0B0D17), Color(0xFF1A1C2E))
-                )
+                Brush.verticalGradient(colors = bgColors)
             )
             .draggable(
                 state = draggableState,
@@ -93,6 +107,17 @@ fun LockScreen(
                     color = Color.White.copy(alpha = 0.7f)
                 )
             )
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            // Context Badge
+            GlassCard(modifier = Modifier.padding(16.dp)) {
+                Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(contextIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(greeting, color = Color.White, fontWeight = FontWeight.Medium)
+                }
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 

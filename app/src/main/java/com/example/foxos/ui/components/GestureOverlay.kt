@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
+import com.example.foxos.ui.theme.FoxLauncherTheme
 
 @Composable
 fun GestureOverlay(
@@ -22,50 +23,35 @@ fun GestureOverlay(
     modifier: Modifier = Modifier
 ) {
     var currentPath by remember { mutableStateOf<List<Offset>>(emptyList()) }
-    val viewConfiguration = LocalViewConfiguration.current
+    val colors = FoxLauncherTheme.colors
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val down = awaitFirstDown(requireUnconsumed = false)
                     val path = mutableListOf<Offset>()
                     path.add(down.position)
+                    currentPath = path.toList()
                     
-                    var gestureDetected = false
+                    // Consume immediately to claim this gesture
+                    down.consume()
 
                     while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.find { it.id == down.id }
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
                         
-                        if (change == null || change.changedToUp()) {
+                        if (change == null || !change.pressed) {
                             break
                         }
 
-                        val dragAmount = change.position - change.previousPosition
-                        
-                        // Wait for the Main pass to see if a button consumed it.
-                        val mainEvent = awaitPointerEvent(pass = PointerEventPass.Main)
-                        val mainChange = mainEvent.changes.find { it.id == down.id }
-
-                        if (mainChange != null && mainChange.isConsumed) {
-                            break
-                        }
-
-                        if (gestureDetected) {
-                            path.add(change.position)
-                            currentPath = path.toList()
-                            change.consume()
-                        } else if (dragAmount.getDistance() > viewConfiguration.touchSlop) {
-                            gestureDetected = true
-                            path.add(change.position)
-                            currentPath = path.toList()
-                            change.consume()
-                        }
+                        path.add(change.position)
+                        currentPath = path.toList()
+                        change.consume()
                     }
 
-                    if (gestureDetected && path.size > 10) {
+                    if (path.size > 10) {
                         onGestureComplete(path)
                     }
                     currentPath = emptyList()
@@ -74,17 +60,33 @@ fun GestureOverlay(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             if (currentPath.size > 1) {
-                val path = Path().apply {
+                val gesturePath = Path().apply {
                     moveTo(currentPath.first().x, currentPath.first().y)
                     currentPath.drop(1).forEach { offset ->
                         lineTo(offset.x, offset.y)
                     }
                 }
+                // Draw glow effect
                 drawPath(
-                    path = path,
-                    color = Color.Cyan.copy(alpha = 0.4f),
+                    path = gesturePath,
+                    color = colors.primary.copy(alpha = 0.3f),
+                    style = Stroke(width = 20.dp.toPx(), cap = StrokeCap.Round)
+                )
+                // Draw main stroke
+                drawPath(
+                    path = gesturePath,
+                    color = colors.primary,
                     style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
                 )
+                
+                // Draw points
+                currentPath.forEach { point ->
+                    drawCircle(
+                        color = colors.primary,
+                        radius = 4.dp.toPx(),
+                        center = point
+                    )
+                }
             }
         }
     }

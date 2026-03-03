@@ -3,7 +3,7 @@ package com.example.foxos.ui.theme
 import androidx.compose.ui.graphics.Color
 
 enum class Theme {
-    ORANGE_BLACK, CYBERPUNK, HARMONY_OS, MINIMALIST
+    ORANGE_BLACK, CYBERPUNK, HARMONY_OS, MINIMALIST, DYNAMIC, AR_CAMERA
 }
 
 data class FoxThemeColors(
@@ -49,4 +49,13 @@ val MinimalistTheme = FoxThemeColors(
     onSurface = Color(0xFF000000),
     accent = Color(0xFF007AFF),
     isLight = true
+)
+
+val ArCameraTheme = FoxThemeColors(
+    primary = Color(0xFFFFFFFF),
+    background = Color.Transparent, // Transparent background for camera
+    surface = Color(0x33000000), // Very sheer black glass for readability
+    onSurface = Color(0xFFFFFFFF),
+    accent = Color(0xFF00FBFF),
+    isLight = false
 )

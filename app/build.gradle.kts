@@ -38,6 +38,11 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
@@ -60,6 +65,34 @@ dependencies {
     
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+
+    // Compose Foundation for HorizontalPager
+    implementation("androidx.compose.foundation:foundation:1.6.0")
+
+    // Palette for dynamic theming
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
+    // Biometrics for App Vault
+    implementation("androidx.biometric:biometric:1.1.0")
+
+    // CameraX for AR Background
+    val camerax_version = "1.3.1"
+    implementation("androidx.camera:camera-core:${camerax_version}")
+    implementation("androidx.camera:camera-camera2:${camerax_version}")
+    implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+    implementation("androidx.camera:camera-view:${camerax_version}")
+
+    // Accompanist for Permissions in Compose
+    implementation("com.google.accompanist:accompanist-permissions:0.34.0")
+
+    // WorkManager for Neural Usage Learning
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // Google Generative AI (Gemini)
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    // OkHttp for network calls
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
