@@ -38,6 +38,9 @@ class SettingsRepository(private val context: Context) {
         val SIDEBAR_APPS = stringSetPreferencesKey("sidebar_apps")
         val DOCK_APPS = stringSetPreferencesKey("dock_apps")
         val HOME_SCREEN_APPS = stringSetPreferencesKey("home_screen_apps")
+        val GEMINI_MODEL = stringPreferencesKey("gemini_model")
+        val MINIMALISTIC_MODE = booleanPreferencesKey("minimalistic_mode")
+        val WALLPAPER_STYLE = stringPreferencesKey("wallpaper_style")
     }
 
     val gridColumns: Flow<Int> = context.dataStore.data.map { preferences ->
@@ -92,6 +95,10 @@ class SettingsRepository(private val context: Context) {
         preferences[PreferencesKeys.WALLPAPER_ID] ?: "pastel"
     }
 
+    val wallpaperStyle: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.WALLPAPER_STYLE] ?: "aurora"
+    }
+
     val customWallpaperUri: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.CUSTOM_WALLPAPER_URI] ?: ""
     }
@@ -118,6 +125,14 @@ class SettingsRepository(private val context: Context) {
 
     val homeScreenApps: Flow<Set<String>> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.HOME_SCREEN_APPS] ?: emptySet()
+    }
+
+    val geminiModel: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.GEMINI_MODEL] ?: "gemini-1.5-flash"
+    }
+
+    val isMinimalisticMode: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.MINIMALISTIC_MODE] ?: false
     }
 
     suspend fun updateGridColumns(columns: Int) {
@@ -253,4 +268,23 @@ class SettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.HOME_SCREEN_APPS] = packages
         }
     }
+
+    suspend fun updateGeminiModel(model: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GEMINI_MODEL] = model
+        }
+    }
+
+    suspend fun updateWallpaperStyle(style: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.WALLPAPER_STYLE] = style
+        }
+    }
+
+    suspend fun setMinimalisticMode(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.MINIMALISTIC_MODE] = enabled
+        }
+    }
 }
+    // This is a duplicate closing brace check - should not need appending if file ends cleanly

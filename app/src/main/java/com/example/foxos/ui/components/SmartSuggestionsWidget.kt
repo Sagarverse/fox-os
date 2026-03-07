@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.AlarmClock
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -145,20 +148,26 @@ fun SmartSuggestionsWidget(
                 )
             }
 
+            // Action Button - Neural Glow Style
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(36.dp)
-                    .clip(HarmonyShapes.medium)
-                    .background(colors.primary)
-                    .bounceClick { suggestion.action?.invoke() },
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(colors.primary, colors.primary.copy(alpha = 0.7f))
+                        )
+                    )
+                    .clickable { suggestion.action?.invoke() },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = suggestion.actionLabel,
+                    text = suggestion.actionLabel.uppercase(),
                     color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp
                 )
             }
         }

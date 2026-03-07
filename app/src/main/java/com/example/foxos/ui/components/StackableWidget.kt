@@ -15,6 +15,7 @@ import com.example.foxos.ui.theme.FoxLauncherTheme
 import com.example.foxos.ui.theme.HarmonyShapes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 /**
  * A stacked widget container that allows vertical swiping between different service cards.
@@ -27,6 +28,7 @@ fun StackableWidget(
 ) {
     if (widgets.isEmpty()) return
 
+    val colors = FoxLauncherTheme.colors
     val pagerState = rememberPagerState(pageCount = { widgets.size })
 
     Box(
@@ -44,22 +46,33 @@ fun StackableWidget(
             }
         }
         
-        // Pager Indicators
+        // Pager Indicators - Premium Glass Style
         if (widgets.size > 1) {
-            Column(
+            Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(end = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(vertical = 8.dp, horizontal = 4.dp)
             ) {
-                repeat(widgets.size) { iteration ->
-                    val color = if (pagerState.currentPage == iteration) Color.White.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.3f)
-                    Box(
-                        modifier = Modifier
-                            .size(if (pagerState.currentPage == iteration) 6.dp else 4.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                    )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    repeat(widgets.size) { iteration ->
+                        val isSelected = pagerState.currentPage == iteration
+                        val color = if (isSelected) colors.primary else Color.White.copy(alpha = 0.2f)
+                        val size = if (isSelected) 8.dp else 5.dp
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(size)
+                                .clip(CircleShape)
+                                .background(color)
+                                .then(if (isSelected) Modifier.shimmer(2000) else Modifier)
+                        )
+                    }
                 }
             }
         }

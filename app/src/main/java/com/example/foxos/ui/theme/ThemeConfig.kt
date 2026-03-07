@@ -20,42 +20,42 @@ val OrangeBlackTheme = FoxThemeColors(
     background = Color(0xFF000000),
     surface = Color(0xFF121212),
     onSurface = Color(0xFFFAFAFA),
-    accent = Color(0xFFFF8F00),
+    accent = Color(0xFFFFAB40),
     isLight = false
 )
 
 val CyberpunkTheme = FoxThemeColors(
-    primary = Color(0xFF00FBFF),
-    background = Color(0xFF0D0221),
-    surface = Color(0xFF1A1C2E),
+    primary = NeonCyan,
+    background = DeepSpaceBlue,
+    surface = Color(0xFF16213E),
     onSurface = Color(0xFFE6E6FA),
-    accent = Color(0xFFFE019A),
+    accent = ElectricViolet,
     isLight = false
 )
 
 val HarmonyOSTheme = FoxThemeColors(
-    primary = Color(0xFF007DFF), // Huawei Blue
-    background = Color(0xFFF5F5F7), // Clean off-white
+    primary = FoxHarmonyBlue,
+    background = Color(0xFFF5F5F7),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF000000),
-    accent = Color(0xFF007DFF),
+    onSurface = Color(0xFF1D1D1F),
+    accent = FoxHarmonyBlue,
     isLight = true
 )
 
 val MinimalistTheme = FoxThemeColors(
-    primary = Color(0xFF1A1A1A),
+    primary = Color(0xFF1D1D1F),
     background = Color(0xFFFFFFFF),
     surface = Color(0xFFF2F2F7),
-    onSurface = Color(0xFF000000),
+    onSurface = Color(0xFF1D1D1F),
     accent = Color(0xFF007AFF),
     isLight = true
 )
 
 val ArCameraTheme = FoxThemeColors(
     primary = Color(0xFFFFFFFF),
-    background = Color.Transparent, // Transparent background for camera
-    surface = Color(0x33000000), // Very sheer black glass for readability
+    background = Color.Transparent,
+    surface = Color(0x4D000000),
     onSurface = Color(0xFFFFFFFF),
-    accent = Color(0xFF00FBFF),
+    accent = NeonCyan,
     isLight = false
 )

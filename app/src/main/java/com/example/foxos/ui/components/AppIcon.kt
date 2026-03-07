@@ -6,14 +6,21 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,18 +58,29 @@ fun AppIcon(
     val colors = FoxLauncherTheme.colors
     var showMenu by remember { mutableStateOf(false) }
     
+    // Animation for scale on press
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "app_icon_scale"
+    )
+
     // CRITICAL PERFORMANCE FIX: Move bitmap conversion out of the composition path
     val iconBitmap = remember(app.packageName) {
         app.icon?.toBitmap()?.asImageBitmap()
     }
 
-    Box {
+    Box(modifier = modifier.scale(animatedScale)) {
         Column(
-            modifier = modifier
+            modifier = Modifier
                 .padding(4.dp)
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = { showMenu = true }
+                    onLongClick = { showMenu = true },
+                    interactionSource = interactionSource,
+                    indication = null
                 )
                 .padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -71,40 +90,50 @@ fun AppIcon(
                     val infiniteTransition = rememberInfiniteTransition(label = "appicon_glow_transition")
                     val scale by infiniteTransition.animateFloat(
                         initialValue = 1f,
-                        targetValue = 1.25f,
+                        targetValue = 1.3f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(1200, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
+                            animation = tween(1500, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
                         ), label = "appicon_glow_scale"
                     )
                     val alpha by infiniteTransition.animateFloat(
-                        initialValue = 0.6f,
+                        initialValue = 0.4f,
                         targetValue = 0f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(1200, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
+                            animation = tween(1500, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
                         ), label = "appicon_glow_alpha"
                     )
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(60.dp)
                             .scale(scale)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(com.example.foxos.ui.theme.FoxHarmonyBlue.copy(alpha = alpha))
+                            .background(
+                                color = Color(0xFF007DFF).copy(alpha = alpha),
+                                shape = RoundedCornerShape(18.dp)
+                            )
                     )
                 }
                 
+                // Enhanced Glass Icon Container
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(60.dp)
                         .background(
-                            brush = Brush.linearGradient(
+                            brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    Color.White.copy(alpha = 0.1f),
+                                    Color.White.copy(alpha = 0.25f),
                                     Color.White.copy(alpha = 0.05f)
                                 )
                             ),
-                            shape = RoundedCornerShape(14.dp)
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .border(
+                            width = 0.5.dp,
+                            brush = Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.4f), Color.Transparent)
+                            ),
+                            shape = RoundedCornerShape(16.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -113,23 +142,30 @@ fun AppIcon(
                             painter = BitmapPainter(bitmap),
                             contentDescription = app.label,
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
                         )
-                    }
+                    } ?: Icon(
+                        imageVector = Icons.Default.Apps,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
             }
             if (showLabel) {
                 Text(
                     text = app.label,
-                    style = MaterialTheme.typography.bodySmall.copy(
+                    style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
-                        color = Color.White.copy(alpha = 0.9f)
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 0.2.sp
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp)
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }

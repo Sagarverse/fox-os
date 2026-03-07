@@ -11,6 +11,9 @@ import androidx.lifecycle.AndroidViewModel
 import com.example.foxos.data.LauncherRepository
 import com.example.foxos.data.SettingsRepository
 import com.example.foxos.utils.GenerativeAIEngine
+import com.example.foxos.ai.FoxAIIntelligence
+import com.example.foxos.ai.AssistantIntent
+import com.example.foxos.viewmodel.ControlCenterViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +21,7 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import java.util.*
@@ -27,7 +31,7 @@ sealed class AssistantState {
     object Listening : AssistantState()
     data class Processing(val text: String) : AssistantState()
     data class Generating(val partialText: String) : AssistantState()
-    data class Success(val response: String) : AssistantState()
+    data class Success(val response: String, val category: String? = null) : AssistantState()
     data class Error(val message: String) : AssistantState()
     data class Timer(val totalSeconds: Int, val remainingSeconds: Int, val label: String = "Timer") : AssistantState()
 }
@@ -36,12 +40,19 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
     private val speechRecognizer = SpeechRecognizer.createSpeechRecognizer(application)
     private val repository = LauncherRepository(application)
     private val settingsRepository = SettingsRepository(application)
+    private val controlCenterViewModel = ControlCenterViewModel(application)
+    private val weatherViewModel = WeatherViewModel()
+    private val taskViewModel = TaskViewModel(application)
+    private val noteViewModel = NoteViewModel(application)
     
     private val _state = MutableStateFlow<AssistantState>(AssistantState.Idle)
     val state: StateFlow<AssistantState> = _state.asStateFlow()
 
     private val _recognizedText = MutableStateFlow("")
     val recognizedText: StateFlow<String> = _recognizedText.asStateFlow()
+
+    private val _rmsLevel = MutableStateFlow(0f)
+    val rmsLevel: StateFlow<Float> = _rmsLevel.asStateFlow()
     
     private var timerJob: Job? = null
 
@@ -53,7 +64,10 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
         override fun onBeginningOfSpeech() {
             Log.d("VoiceAssistant", "onBeginningOfSpeech")
         }
-        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onRmsChanged(rmsdB: Float) {
+            // Normalize: rmsdB is typically -2 to 10, map to 0..1
+            _rmsLevel.value = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+        }
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {
             Log.d("VoiceAssistant", "onEndOfSpeech")
@@ -94,15 +108,19 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
 
     init {
         speechRecognizer.setRecognitionListener(recognitionListener)
-        // Continuously observe API key changes
+        // Continuously observe API key and model changes
         viewModelScope.launch {
-            settingsRepository.geminiApiKey.collectLatest { apiKey ->
-                Log.d("VoiceAssistant", "API key changed, length: ${apiKey.length}, blank: ${apiKey.isBlank()}")
-                if (apiKey.isNotBlank()) {
-                    GenerativeAIEngine.setApiKey(apiKey)
-                    Log.d("VoiceAssistant", "Gemini API key set, isApiKeySet: ${GenerativeAIEngine.isApiKeySet()}")
+            combine(
+                settingsRepository.geminiApiKey,
+                settingsRepository.geminiModel
+            ) { apiKey, model -> apiKey to model }
+                .collectLatest { (apiKey, model) ->
+                    Log.d("VoiceAssistant", "Gemini config changed: Model=$model, KeyLength=${apiKey.length}")
+                    if (apiKey.isNotBlank()) {
+                        GenerativeAIEngine.setApiKey(apiKey, model)
+                        Log.d("VoiceAssistant", "Gemini engine updated")
+                    }
                 }
-            }
         }
     }
     
@@ -121,7 +139,9 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun startListening() {
+        timerJob?.cancel()
         _recognizedText.value = ""
+        _state.value = AssistantState.Listening
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
@@ -136,6 +156,19 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
                 Log.e("VoiceAssistant", "startListening error", e)
                 _state.value = AssistantState.Error("Could not start recognition")
             }
+        }
+    }
+
+    fun resetAndListen() {
+        speechRecognizer.stopListening()
+        speechRecognizer.cancel()
+        timerJob?.cancel()
+        _recognizedText.value = ""
+        _state.value = AssistantState.Idle
+        // Small delay to ensure previous instance is cleaned up
+        viewModelScope.launch {
+            delay(100)
+            startListening()
         }
     }
 
@@ -202,27 +235,239 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
             return
         }
 
-        // If no strict intents match, pass to the Generative AI Engine for reasoning
+        // If no strict local intents match, use Fox AI Intelligence for advanced reasoning
         viewModelScope.launch {
             _state.value = AssistantState.Processing("Thinking...")
-            Log.d("VoiceAssistant", "Processing command with AI, isApiKeySet: ${GenerativeAIEngine.isApiKeySet()}")
             
             try {
-                GenerativeAIEngine.generateStreamingResponse(command).collect { chunk ->
-                    Log.d("VoiceAssistant", "AI response chunk, length: ${chunk.length}")
-                    _state.value = AssistantState.Generating(chunk)
-                }
-                
-                // Finalize the generation
-                val finalState = _state.value
-                if (finalState is AssistantState.Generating) {
-                    Log.d("VoiceAssistant", "AI generation complete, response length: ${finalState.partialText.length}")
-                    _state.value = AssistantState.Success(finalState.partialText)
-                }
+                val intent = FoxAIIntelligence.parseIntent(command)
+                executeIntent(intent, command)
             } catch (e: Exception) {
-                Log.e("VoiceAssistant", "AI generation failed", e)
-                _state.value = AssistantState.Error("Generation failed: ${e.message}")
+                Log.e("VoiceAssistant", "AI processing failed", e)
+                _state.value = AssistantState.Error("I couldn't process that: ${e.message}")
             }
+        }
+    }
+
+    private suspend fun executeIntent(intent: AssistantIntent, originalCommand: String) {
+        when (intent) {
+            is AssistantIntent.HardwareControl -> {
+                handleHardwareCommand(intent)
+            }
+            is AssistantIntent.AppControl -> {
+                handleAppCommand(intent)
+            }
+            is AssistantIntent.Communicate -> {
+                handleCommCommand(intent)
+            }
+            is AssistantIntent.Productivity -> {
+                handleProductivityCommand(intent)
+            }
+            is AssistantIntent.MediaControl -> {
+                handleMediaCommand(intent)
+            }
+            is AssistantIntent.Utility -> {
+                handleUtilityCommand(intent)
+            }
+            is AssistantIntent.Information -> {
+                // Fallback to regular streaming AI response for general queries
+                generateAIResponse(originalCommand)
+            }
+            is AssistantIntent.Answer -> {
+                _state.value = AssistantState.Success(intent.text)
+            }
+            is AssistantIntent.Unknown -> {
+                generateAIResponse(originalCommand)
+            }
+        }
+    }
+
+    private fun handleHardwareCommand(intent: AssistantIntent.HardwareControl) {
+        when (intent.device.lowercase()) {
+            "flashlight", "torch" -> {
+                val enable = intent.action == "on" || (intent.action == "toggle" && !controlCenterViewModel.isFlashlightEnabled.value)
+                controlCenterViewModel.setFlashlight(enable)
+                _state.value = AssistantState.Success("${if (enable) "Enabled" else "Disabled"} the flashlight.", "HARDWARE")
+            }
+            "wifi" -> {
+                if (intent.action == "on" || intent.action == "off") {
+                    controlCenterViewModel.toggleWifi()
+                    _state.value = AssistantState.Success("Adjusting Wi-Fi settings...", "HARDWARE")
+                }
+            }
+            "bluetooth" -> {
+                controlCenterViewModel.toggleBluetooth()
+                _state.value = AssistantState.Success("Adjusting Bluetooth settings...", "HARDWARE")
+            }
+            "brightness" -> {
+                if (intent.action == "increase") controlCenterViewModel.adjustBrightness(true)
+                else if (intent.action == "decrease") controlCenterViewModel.adjustBrightness(false)
+                _state.value = AssistantState.Success("Adjusted brightness.", "HARDWARE")
+            }
+            "volume" -> {
+                if (intent.action == "increase") controlCenterViewModel.adjustVolume(true)
+                else if (intent.action == "decrease") controlCenterViewModel.adjustVolume(false)
+                _state.value = AssistantState.Success("Adjusted volume.", "HARDWARE")
+            }
+            "hotspot" -> {
+                controlCenterViewModel.openHotspotSettings()
+                _state.value = AssistantState.Success("Opening Hotspot settings...", "HARDWARE")
+            }
+            "airplane" -> {
+                controlCenterViewModel.toggleAirplaneMode()
+                _state.value = AssistantState.Success("Opening Airplane Mode settings...", "HARDWARE")
+            }
+            "rotate", "rotation" -> {
+                controlCenterViewModel.toggleAutoRotate()
+                _state.value = AssistantState.Success("Toggled auto-rotate.", "HARDWARE")
+            }
+            "location", "gps" -> {
+                controlCenterViewModel.toggleLocation()
+                _state.value = AssistantState.Success("Opening location settings...", "HARDWARE")
+            }
+        }
+    }
+
+    private fun handleAppCommand(intent: AssistantIntent.AppControl) {
+        if (intent.action == "open") {
+            launchSimulatedIntent(intent.app, "Opening ${intent.app}", "APPS")
+        } else if (intent.action == "recents") {
+            val intentRecents = Intent("com.android.systemui.recents.SHOW_RECENT_APPS")
+            intentRecents.setPackage("com.android.systemui")
+            intentRecents.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            try {
+                getApplication<Application>().startActivity(intentRecents)
+                _state.value = AssistantState.Success("Showing recent apps.", "APPS")
+            } catch (e: Exception) {
+                _state.value = AssistantState.Error("Could not show recents.")
+            }
+        }
+    }
+
+    private fun handleCommCommand(intent: AssistantIntent.Communicate) {
+        val ctx = getApplication<Application>()
+        when (intent.type.lowercase()) {
+            "call" -> {
+                val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                    data = android.net.Uri.parse("tel:${intent.contact}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                ctx.startActivity(dialIntent)
+                _state.value = AssistantState.Success("Calling ${intent.contact}...", "COMM")
+            }
+            "sms", "message" -> {
+                val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+                    data = android.net.Uri.parse("smsto:")
+                    putExtra("sms_body", intent.message ?: "")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                ctx.startActivity(smsIntent)
+                _state.value = AssistantState.Success("Preparing message to ${intent.contact}...", "COMM")
+            }
+            "whatsapp" -> {
+                val url = "https://api.whatsapp.com/send?phone=${intent.contact}&text=${android.net.Uri.encode(intent.message ?: "")}"
+                val waIntent = Intent(Intent.ACTION_VIEW).apply {
+                    data = android.net.Uri.parse(url)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                try {
+                    ctx.startActivity(waIntent)
+                    _state.value = AssistantState.Success("Opening WhatsApp...", "COMM")
+                } catch (e: Exception) {
+                    _state.value = AssistantState.Error("WhatsApp is not installed.")
+                }
+            }
+        }
+    }
+
+    private suspend fun handleProductivityCommand(intent: AssistantIntent.Productivity) {
+        when (intent.type.lowercase()) {
+            "timer" -> {
+                val seconds = (intent.details["time"]?.toString()?.toIntOrNull() ?: 5) * 60
+                startTimer(seconds, intent.details["label"]?.toString() ?: "Timer")
+            }
+            "alarm" -> {
+                val alarmIntent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+                    putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, intent.details["label"]?.toString() ?: "Assistant Alarm")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                getApplication<Application>().startActivity(alarmIntent)
+                _state.value = AssistantState.Success("Setting alarm...", "PRODUCTIVITY")
+            }
+            "note" -> {
+                val content = intent.details["content"]?.toString() ?: intent.details["label"]?.toString() ?: ""
+                if (content.isNotBlank()) {
+                    noteViewModel.addNote(content)
+                    _state.value = AssistantState.Success("Note saved: \"$content\"", "PRODUCTIVITY")
+                } else {
+                    _state.value = AssistantState.Error("What should the note say?")
+                }
+            }
+            "task", "reminder" -> {
+                val title = intent.details["label"]?.toString() ?: intent.details["content"]?.toString() ?: ""
+                if (title.isNotBlank()) {
+                    taskViewModel.addTask(title)
+                    _state.value = AssistantState.Success("Task added: \"$title\"", "PRODUCTIVITY")
+                } else {
+                    _state.value = AssistantState.Error("What's the task?")
+                }
+            }
+            "schedule" -> {
+                _state.value = AssistantState.Success("Opening your schedule...", "PRODUCTIVITY")
+            }
+        }
+    }
+
+    private fun handleMediaCommand(intent: AssistantIntent.MediaControl) {
+        // Broadcast media intents
+        val action = when (intent.action.lowercase()) {
+            "play" -> "com.android.music.musicservicecommand.togglepause"
+            "pause" -> "com.android.music.musicservicecommand.pause"
+            "next" -> "com.android.music.musicservicecommand.next"
+            "prev" -> "com.android.music.musicservicecommand.previous"
+            else -> null
+        }
+        if (action != null) {
+            val mediaIntent = Intent(action)
+            getApplication<Application>().sendBroadcast(mediaIntent)
+            _state.value = AssistantState.Success("Media command: ${intent.action}", "MEDIA")
+        }
+    }
+
+    private fun handleUtilityCommand(intent: AssistantIntent.Utility) {
+        when (intent.type.lowercase()) {
+            "coin" -> _state.value = AssistantState.Success("🪙 It's ${if (Random().nextBoolean()) "Heads" else "Tails"}!", "UTILITY")
+            "dice" -> _state.value = AssistantState.Success("🎲 You rolled a ${Random().nextInt(6) + 1}!", "UTILITY")
+            "calc" -> {
+                val result = intent.params["result"] ?: intent.params["expression"]
+                _state.value = AssistantState.Success("Result: $result", "UTILITY")
+            }
+            "weather" -> {
+                viewModelScope.launch {
+                    weatherViewModel.fetchWeather(getApplication())
+                    val weather = weatherViewModel.weatherInfo.first { it.temperature != "--°C" }
+                    _state.value = AssistantState.Success("The weather in ${weather.city} is ${weather.condition} at ${weather.temperature}.", "INFO")
+                }
+            }
+            "stopwatch" -> {
+                _state.value = AssistantState.Success("Stopwatch started.", "UTILITY")
+            }
+            else -> _state.value = AssistantState.Success("Executing ${intent.type} command...", "UTILITY")
+        }
+    }
+
+    private suspend fun generateAIResponse(command: String) {
+        _state.value = AssistantState.Processing("Thinking...")
+        try {
+            GenerativeAIEngine.generateStreamingResponse(command).collect { chunk ->
+                _state.value = AssistantState.Generating(chunk)
+            }
+            val finalState = _state.value
+            if (finalState is AssistantState.Generating) {
+                _state.value = AssistantState.Success(finalState.partialText)
+            }
+        } catch (e: Exception) {
+            _state.value = AssistantState.Error("Generation failed: ${e.message}")
         }
     }
     
@@ -247,18 +492,31 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
         _state.value = AssistantState.Idle
     }
 
-    private fun launchSimulatedIntent(targetAppName: String, successMessage: String) {
+    private fun launchSimulatedIntent(targetAppName: String, successMessage: String, category: String? = null) {
         viewModelScope.launch {
             val apps = repository.getInstalledApps().first()
             val targetApp = apps.find { it.label.lowercase().contains(targetAppName.lowercase()) }
             
             if (targetApp != null) {
                 repository.launchApp(targetApp.packageName)
-                _state.value = AssistantState.Success(successMessage)
+                _state.value = AssistantState.Success(successMessage, category)
             } else {
                 _state.value = AssistantState.Error("I couldn't find an app for that intent ($targetAppName)")
             }
         }
+    }
+
+    fun submitTextCommand(command: String) {
+        if (command.isBlank()) return
+        
+        speechRecognizer.stopListening()
+        speechRecognizer.cancel()
+        timerJob?.cancel()
+        
+        _recognizedText.value = command
+        _state.value = AssistantState.Processing("Analyzing...")
+        
+        processCommand(command)
     }
 
     fun resetState() {

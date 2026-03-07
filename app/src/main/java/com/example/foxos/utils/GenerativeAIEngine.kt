@@ -8,18 +8,27 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.IOException
 
 object GenerativeAIEngine {
     
     private var generativeModel: GenerativeModel? = null
     private var currentApiKey: String = ""
+    private var currentModel: String = "gemini-1.5-flash"
+    private val client = OkHttpClient()
     
-    fun setApiKey(apiKey: String) {
-        if (apiKey.isNotBlank() && apiKey != currentApiKey) {
+    fun setApiKey(apiKey: String, modelName: String = "gemini-1.5-flash") {
+        Log.d("GenerativeAIEngine", "setApiKey called with key length: ${apiKey.length}, model: $modelName")
+        if (apiKey.isNotBlank()) {
             currentApiKey = apiKey
+            currentModel = modelName
             generativeModel = GenerativeModel(
-                modelName = "gemini-1.5-flash",
+                modelName = modelName,
                 apiKey = apiKey,
                 generationConfig = generationConfig {
                     temperature = 0.7f
@@ -28,7 +37,117 @@ object GenerativeAIEngine {
                     maxOutputTokens = 1024
                 }
             )
-            Log.d("GenerativeAIEngine", "Gemini model initialized")
+            Log.d("GenerativeAIEngine", "Gemini model initialized successfully. isApiKeySet: ${isApiKeySet()}")
+        } else {
+            Log.w("GenerativeAIEngine", "setApiKey called with blank key")
+        }
+    }
+    
+    suspend fun verifyApiKey(apiKey: String, modelName: String): Result<String> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) return@withContext Result.failure(Exception("API Key cannot be empty"))
+        try {
+            val testModel = GenerativeModel(
+                modelName = modelName,
+                apiKey = apiKey,
+                generationConfig = generationConfig { maxOutputTokens = 10 }
+            )
+            val response = testModel.generateContent("AI Verification Test. Respond with 'OK'.")
+            if (response.text?.isNotEmpty() == true) {
+                Result.success("Connection successful!")
+            } else {
+                Result.failure(Exception("Received unexpected response from API"))
+            }
+        } catch (e: Exception) {
+            Log.e("GenerativeAIEngine", "API Verification failed", e)
+            val errorMessage = when {
+                e.message?.contains("API_KEY_INVALID") == true -> "Invalid API Key"
+                e.message?.contains("model not found") == true -> "Model $modelName not supported by this key"
+                e.message?.contains("quota") == true -> "Quota exceeded or trial ended"
+                e.message?.contains("permission") == true -> "Permission denied (check subscription)"
+                else -> e.message ?: "Unknown interaction error"
+            }
+            Result.failure(Exception(errorMessage))
+        }
+    }
+
+    data class ModelMetadata(
+        val name: String,
+        val displayName: String,
+        val description: String,
+        val supportsGenerate: Boolean
+    )
+
+    suspend fun fetchAvailableModels(apiKey: String): Result<List<ModelMetadata>> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) return@withContext Result.failure(Exception("API Key is required"))
+        
+        try {
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string() ?: ""
+                    val code = response.code
+                    val message = when (code) {
+                        400 -> "Bad Request: Check API format"
+                        401 -> "Invalid API Key: Unauthorized"
+                        403 -> "Forbidden: Key restricted or trial ended"
+                        429 -> "Quota Exceeded: Too many requests"
+                        else -> "HTTP $code: $errorBody"
+                    }
+                    return@withContext Result.failure(Exception(message))
+                }
+
+                val bodyString = response.body?.string() ?: "{}"
+                val jsonResponse = JSONObject(bodyString)
+                val modelsArray = jsonResponse.optJSONArray("models") ?: return@withContext Result.success(emptyList())
+                
+                val modelList = mutableListOf<ModelMetadata>()
+                for (i in 0 until modelsArray.length()) {
+                    val modelObj = modelsArray.getJSONObject(i)
+                    val name = modelObj.getString("name").substringAfter("models/")
+                    val displayName = modelObj.optString("displayName", name)
+                    val description = modelObj.optString("description", "")
+                    
+                    val methods = modelObj.optJSONArray("supportedGenerationMethods")
+                    var supportsGenerate = false
+                    if (methods != null) {
+                        for (j in 0 until methods.length()) {
+                            val method = methods.getString(j)
+                            if (method == "generateContent" || method == "generateText") {
+                                supportsGenerate = true
+                                break
+                            }
+                        }
+                    } 
+                    
+                    // Always include models that have "gemini" in their name
+                    if (name.contains("gemini", ignoreCase = true)) {
+                        val isSupported = supportsGenerate || 
+                                         name.contains("1.5") || 
+                                         name.contains("2.0") || 
+                                         name.contains("pro") || 
+                                         name.contains("flash")
+                        
+                        modelList.add(ModelMetadata(name, displayName, description, isSupported))
+                    }
+                }
+                
+                // Superior sorting: 2.0 > 1.5 > Pro > Flash
+                val sortedList = modelList.sortedWith(
+                    compareByDescending<ModelMetadata> { it.name.contains("2.0") }
+                        .thenByDescending { it.name.contains("1.5") }
+                        .thenByDescending { it.name.contains("pro") }
+                        .thenByDescending { it.name.contains("flash") }
+                        .thenBy { it.name }
+                )
+                
+                Result.success(sortedList)
+            }
+        } catch (e: Exception) {
+            Log.e("GenerativeAIEngine", "Failed to fetch models", e)
+            Result.failure(e)
         }
     }
     
@@ -65,8 +184,8 @@ object GenerativeAIEngine {
                 }
             } catch (e: Exception) {
                 Log.e("GenerativeAIEngine", "Gemini API error: ${e.javaClass.simpleName} - ${e.message}", e)
-                // Fall back to local response on error
-                emitFallbackResponse(prompt).collect { emit(it) }
+                // Fall back to local response on error, with a hint that API failed
+                emitFallbackResponse(prompt, isError = true).collect { emit(it) }
             }
         } else {
             Log.d("GenerativeAIEngine", "Using fallback response (no API key)")
@@ -74,8 +193,8 @@ object GenerativeAIEngine {
         }
     }.flowOn(Dispatchers.IO)
     
-    // Fallback responses when no API key is set
-    private fun emitFallbackResponse(prompt: String): Flow<String> = flow {
+    // Fallback responses when no API key is set or API fails
+    private fun emitFallbackResponse(prompt: String, isError: Boolean = false): Flow<String> = flow {
         val lowerPrompt = prompt.lowercase()
         
         delay(300)
@@ -107,7 +226,10 @@ object GenerativeAIEngine {
                 "I heard: \"$prompt\"\n\nFor smarter responses, add your Gemini API key in Settings → AI Assistant. Otherwise, try: 'Open [app]', 'Play music', or 'Set alarm'."
         }
         
-        val words = fullResponse.split(" ")
+        val errorSuffix = if (isError) "\n\n(Note: Your Gemini API key is set but encountered an error. Please check it in Settings.)" else ""
+        val finalResponse = fullResponse + errorSuffix
+        
+        val words = finalResponse.split(" ")
         for (i in words.indices) {
             val chunk = words.subList(0, i + 1).joinToString(" ")
             emit(chunk)

@@ -37,7 +37,8 @@ fun InteractiveLargeFolder(
 
     GlassPanel(
         modifier = modifier
-            .size(160.dp)
+            .widthIn(max = 180.dp)
+            .heightIn(max = 180.dp)
             .clickable { onExpandClick() }, // Clicking the background expands
         shape = HarmonyShapes.large,
         color = Color.White.copy(alpha = 0.2f),

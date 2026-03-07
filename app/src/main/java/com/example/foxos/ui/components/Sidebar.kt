@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.foxos.ui.components.GlassPanel
 import com.example.foxos.ui.theme.FoxLauncherTheme
 import com.example.foxos.ui.theme.HarmonyShapes
 import com.example.foxos.viewmodel.ControlAction
@@ -50,8 +51,10 @@ fun Sidebar(
     onOpenSettings: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenQuickNotes: () -> Unit,
+    onOpenNotifications: () -> Unit = {},
     onOpenStudentHub: () -> Unit = {},
     pendingTaskCount: Int = 0,
+
     controlViewModel: ControlCenterViewModel? = null,
     modifier: Modifier = Modifier
 ) {
@@ -82,13 +85,16 @@ fun Sidebar(
     
     val sidebarItems = listOf(
         SidebarItem(Icons.Default.Apps, "All Apps", onOpenDrawer),
+        SidebarItem(Icons.Default.Notifications, "Notifications", onOpenNotifications),
+        SidebarItem(Icons.Default.School, "Student Hub", onOpenStudentHub),
         SidebarItem(Icons.Default.Checklist, "Tasks", onOpenTasks, badge = taskBadge),
         SidebarItem(Icons.Default.Note, "Quick Notes", onOpenQuickNotes),
-        SidebarItem(Icons.Default.School, "Student Hub", onOpenStudentHub),
         SidebarItem(Icons.Default.Shield, "Focus Mode", onOpenFocus),
         SidebarItem(Icons.Default.Mic, "Assistant", onOpenAssistant),
         SidebarItem(Icons.Default.Settings, "Settings", onOpenSettings)
     )
+
+
 
     AnimatedVisibility(
         visible = isVisible,
@@ -121,27 +127,15 @@ fun Sidebar(
             )
             
             // Sidebar panel
-            Box(
+            GlassPanel(
                 modifier = modifier
                     .fillMaxHeight()
-                    .width(280.dp)
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = if (colors.isLight) {
-                                listOf(
-                                    Color.White.copy(alpha = 0.95f),
-                                    Color.White.copy(alpha = 0.9f)
-                                )
-                            } else {
-                                listOf(
-                                    colors.surface.copy(alpha = 0.95f),
-                                    colors.background.copy(alpha = 0.9f)
-                                )
-                            }
-                        ),
-                        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
-                    )
-                    .clickable(enabled = false, onClick = {}) // Prevent clicks from passing through
+                    .width(300.dp),
+                shape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
+                color = colors.surface.copy(alpha = 0.45f),
+                blurRadius = 40.dp,
+                borderWidth = 1.dp,
+                borderColor = colors.onSurface.copy(alpha = 0.08f)
             ) {
                 Column(
                     modifier = Modifier
@@ -305,32 +299,33 @@ private fun QuickToggleButton(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(8.dp)
+            .padding(4.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isActive) colors.primary.copy(alpha = 0.2f)
-                    else colors.onSurface.copy(alpha = 0.08f)
-                ),
-            contentAlignment = Alignment.Center
+        GlassPanel(
+            modifier = Modifier.size(52.dp),
+            shape = CircleShape,
+            color = if (isActive) colors.primary.copy(alpha = 0.15f) else colors.onSurface.copy(alpha = 0.03f),
+            blurRadius = 10.dp,
+            borderWidth = if (isActive) 1.5.dp else 1.dp,
+            borderColor = if (isActive) colors.primary.copy(alpha = 0.3f) else colors.onSurface.copy(alpha = 0.05f)
         ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = if (isActive) colors.primary else colors.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.size(22.dp)
-            )
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = if (isActive) colors.primary else colors.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = label,
             fontSize = 10.sp,
-            color = if (isActive) colors.primary else colors.onSurface.copy(alpha = 0.6f)
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+            color = if (isActive) colors.primary else colors.onSurface.copy(alpha = 0.5f)
         )
     }
 }
@@ -347,22 +342,30 @@ private fun SidebarNavItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = colors.onSurface.copy(alpha = 0.7f),
-            modifier = Modifier.size(22.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.onSurface.copy(alpha = 0.03f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = colors.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
         Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = label,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
             color = colors.onSurface.copy(alpha = 0.85f),
             modifier = Modifier.weight(1f)
         )
@@ -370,22 +373,23 @@ private fun SidebarNavItem(
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(colors.primary)
+                    .background(colors.primary.copy(alpha = 0.8f))
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = badge,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
                     color = Color.White
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
         }
         Icon(
             Icons.Default.ChevronRight,
             contentDescription = null,
-            tint = colors.onSurface.copy(alpha = 0.3f),
-            modifier = Modifier.size(20.dp)
+            tint = colors.onSurface.copy(alpha = 0.2f),
+            modifier = Modifier.size(18.dp)
         )
     }
 }

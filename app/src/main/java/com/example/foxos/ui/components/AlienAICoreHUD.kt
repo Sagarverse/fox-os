@@ -2,34 +2,33 @@ package com.example.foxos.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import com.example.foxos.ui.theme.FoxLauncherTheme
 import com.example.foxos.viewmodel.AssistantState
 import kotlin.math.PI
@@ -40,11 +39,22 @@ fun AlienAICoreHUD(
     state: AssistantState,
     recognizedText: String,
     onDismiss: () -> Unit,
+    onReset: () -> Unit,
+    onTextSubmit: (String) -> Unit = {},
+    rmsLevel: Float = 0f,
+    isMinimalistic: Boolean = LocalMinimalisticMode.current,
     onCancelTimer: (() -> Unit)? = null
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val pulseAlpha = remember { Animatable(0f) }
+    val pulseScale = remember { Animatable(1f) }
     val colors = FoxLauncherTheme.colors
     val infiniteTransition = rememberInfiniteTransition(label = "aiCore")
     
+    var showKeyboardInput by remember { mutableStateOf(false) }
+    var textInput by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+
     val phase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 2f * PI.toFloat(),
@@ -68,13 +78,44 @@ fun AlienAICoreHUD(
     // Check if we're showing a timer
     val isTimerState = state is AssistantState.Timer
     
+    // Dynamic background gradient based on state
+    val bgGlowColor = when (state) {
+        is AssistantState.Listening -> colors.accent.copy(alpha = 0.3f)
+        is AssistantState.Processing -> colors.primary.copy(alpha = 0.4f)
+        is AssistantState.Generating -> Color.Cyan.copy(alpha = 0.3f)
+        is AssistantState.Success -> Color.Green.copy(alpha = 0.2f)
+        is AssistantState.Error -> Color.Red.copy(alpha = 0.2f)
+        else -> Color.Transparent
+    }
+
+    val animatedBgAlpha by animateFloatAsState(
+        targetValue = if (state !is AssistantState.Idle) 1f else 0f,
+        animationSpec = tween(1000),
+        label = "bgAlpha"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .drawBehind {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            bgGlowColor.copy(alpha = bgGlowColor.alpha * animatedBgAlpha),
+                            Color.Black
+                        )
+                    )
+                )
+            }
             .background(Color.Black.copy(alpha = 0.85f))
-            .clickable { 
-                if (!isTimerState) onDismiss() 
-            },
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = { 
+                    if (showKeyboardInput) showKeyboardInput = false
+                    else onDismiss()
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         if (isTimerState) {
@@ -92,11 +133,37 @@ fun AlienAICoreHUD(
             Box(
                 modifier = Modifier
                     .size(300.dp)
+                    .clip(CircleShape)
+                    .clickable {
+                        coroutineScope.launch {
+                            onReset()
+                            // Quantum Pulse Animation
+                            pulseAlpha.snapTo(0.6f)
+                            pulseScale.snapTo(1f)
+                            launch {
+                                pulseAlpha.animateTo(0f, tween(600))
+                            }
+                            launch {
+                                pulseScale.animateTo(2f, tween(600, easing = FastOutSlowInEasing))
+                            }
+                        }
+                    }
                     .drawBehind {
                         val radius = size.width / 2
 
+                        // Quantum Pulse Ring
+                        if (pulseAlpha.value > 0f) {
+                            drawCircle(
+                                color = colors.accent.copy(alpha = pulseAlpha.value),
+                                radius = radius * pulseScale.value,
+                                style = Stroke(width = 4f)
+                            )
+                        }
+
                         // Inner Energy Core
-                        val corePulse = if (state is AssistantState.Listening) {
+                        val corePulse = if (isMinimalistic) {
+                            0.9f
+                        } else if (state is AssistantState.Listening) {
                             0.8f + 0.2f * sin(phase * 4)
                         } else if (state is AssistantState.Processing) {
                             0.7f + 0.3f * sin(phase * 8)
@@ -106,32 +173,60 @@ fun AlienAICoreHUD(
 
                         drawCircle(
                             brush = Brush.radialGradient(
-                                colors = listOf(colors.accent.copy(alpha = 0.8f), Color.Transparent),
+                                colors = listOf(
+                                    (if (state is AssistantState.Generating) Color.Cyan else colors.accent).copy(alpha = 0.8f),
+                                    Color.Transparent
+                                ),
                                 radius = radius * corePulse
                             ),
                             radius = radius * corePulse
                         )
 
-                        // Rotating Quantum Rings
-                        rotate(rotation) {
-                            drawCircle(
-                                color = colors.primary,
-                                radius = radius * 0.8f,
-                                style = Stroke(
-                                    width = 4f,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 40f), phase * 10f)
+                        // Energy Flow Particles (Simulated)
+                        if (!isMinimalistic && (state is AssistantState.Listening || state is AssistantState.Processing)) {
+                            val particleCount = 8
+                            for (i in 0 until particleCount) {
+                                val angle = (phase * (i + 1) * 2f) % (2f * PI.toFloat())
+                                val pRadius = radius * (0.6f + 0.3f * sin(phase + i))
+                                val x = center.x + pRadius * kotlin.math.cos(angle)
+                                val y = center.y + pRadius * kotlin.math.sin(angle)
+                                drawCircle(
+                                    color = colors.accent.copy(alpha = 0.6f),
+                                    radius = 4f,
+                                    center = androidx.compose.ui.geometry.Offset(x, y)
                                 )
-                            )
+                            }
                         }
 
-                        rotate(-rotation * 1.5f) {
-                            drawCircle(
-                                color = colors.primary.copy(alpha = 0.5f),
-                                radius = radius * 0.9f,
-                                style = Stroke(
-                                    width = 2f,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 20f), 0f)
+                        // Rotating Quantum Rings
+                        if (!isMinimalistic) {
+                            rotate(rotation) {
+                                drawCircle(
+                                    color = colors.primary,
+                                    radius = radius * 0.8f,
+                                    style = Stroke(
+                                        width = 4f,
+                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 40f), phase * 10f)
+                                    )
                                 )
+                            }
+
+                            rotate(-rotation * 1.5f) {
+                                drawCircle(
+                                    color = colors.primary.copy(alpha = 0.5f),
+                                    radius = radius * 0.9f,
+                                    style = Stroke(
+                                        width = 2f,
+                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 20f), 0f)
+                                    )
+                                )
+                            }
+                        } else {
+                            // Static Rings for minimalistic mode
+                            drawCircle(
+                                color = colors.primary.copy(alpha = 0.3f),
+                                radius = radius * 0.8f,
+                                style = Stroke(width = 2f)
                             )
                         }
 
@@ -144,11 +239,60 @@ fun AlienAICoreHUD(
                     }
             )
 
-            // Status Text
+            // Status Text + Waveform
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(top = 400.dp)
             ) {
+                // Real-time waveform bars during Listening
+                if (state is AssistantState.Listening) {
+                    val barCount = 20
+                    Row(
+                        modifier = Modifier
+                            .height(40.dp)
+                            .width(200.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        for (i in 0 until barCount) {
+                            val barPhase = phase + i * 0.4f
+                            val barHeight = (0.2f + 0.8f * rmsLevel * (0.5f + 0.5f * sin(barPhase * 3f))).coerceIn(0.05f, 1f)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(barHeight)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(colors.accent, colors.primary.copy(alpha = 0.5f))
+                                        )
+                                    )
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (state is AssistantState.Success && state.category != null) {
+                    val categoryIcon = when (state.category) {
+                        "HARDWARE" -> Icons.Default.Settings
+                        "APPS" -> Icons.Default.Apps
+                        "COMM" -> Icons.Default.Phone
+                        "PRODUCTIVITY" -> Icons.Default.Edit
+                        "MEDIA" -> Icons.Default.Collections
+                        "UTILITY" -> Icons.Default.Calculate
+                        else -> null
+                    }
+                    if (categoryIcon != null) {
+                        Icon(
+                            imageVector = categoryIcon,
+                            contentDescription = null,
+                            tint = colors.accent,
+                            modifier = Modifier.size(48.dp).padding(bottom = 16.dp)
+                        )
+                    }
+                }
+
                 val displayText = when (state) {
                     is AssistantState.Listening -> recognizedText.ifEmpty { "Listening..." }
                     is AssistantState.Processing -> "Processing...\n\"$recognizedText\""
@@ -187,6 +331,91 @@ fun AlienAICoreHUD(
                     ),
                     modifier = Modifier.padding(top = 8.dp)
                 )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                if (showKeyboardInput) {
+                    // Glassmorphic Text Input
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f)
+                            .height(56.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
+                            .border(1.dp, colors.accent.copy(alpha = 0.3f), androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicTextField(
+                            value = textInput,
+                            onValueChange = { textInput = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester),
+                            textStyle = TextStyle(
+                                color = colors.primary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            cursorBrush = SolidColor(colors.accent),
+                            decorationBox = { innerTextField ->
+                                if (textInput.isEmpty()) {
+                                    Text(
+                                        "Type a command...",
+                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                            color = colors.primary.copy(alpha = 0.3f)
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Send
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    if (textInput.isNotBlank()) {
+                                        onTextSubmit(textInput)
+                                        textInput = ""
+                                        showKeyboardInput = false
+                                    }
+                                }
+                            )
+                        )
+                        
+                        IconButton(
+                            onClick = {
+                                if (textInput.isNotBlank()) {
+                                    onTextSubmit(textInput)
+                                    textInput = ""
+                                    showKeyboardInput = false
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Send, null, tint = colors.accent)
+                        }
+                    }
+                    
+                    LaunchedEffect(Unit) {
+                        focusRequester.requestFocus()
+                    }
+                } else {
+                    // Keyboard Toggle Button
+                    IconButton(
+                        onClick = { showKeyboardInput = true },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.05f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Keyboard,
+                            contentDescription = "Keyboard Input",
+                            tint = colors.accent.copy(alpha = 0.7f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
             }
         }
     }

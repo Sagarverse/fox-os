@@ -1,6 +1,6 @@
 package com.example.foxos.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -17,8 +17,11 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import android.view.SoundEffectConstants
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.animation.core.spring
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.coroutineScope
 
 /**
@@ -70,4 +73,60 @@ fun Modifier.bounceClick(
                 }
             }
         }
+}
+
+/**
+ * Premium Shimmer effect for loaders or high-end interactive surfaces.
+ */
+fun Modifier.shimmer(
+    durationMillis: Int = 2000
+) = composed {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerTranslation"
+    )
+
+    this.drawBehind {
+        val brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.0f),
+                Color.White.copy(alpha = 0.05f),
+                Color.White.copy(alpha = 0.0f),
+            ),
+            start = Offset(translateAnim - 200f, translateAnim - 200f),
+            end = Offset(translateAnim, translateAnim)
+        )
+        drawRect(brush = brush)
+    }
+}
+
+/**
+ * Subtle pulsate effect for "live" elements like AI bubbles or focus points.
+ */
+fun Modifier.pulsate(
+    minScale: Float = 0.98f,
+    maxScale: Float = 1.02f,
+    durationMillis: Int = 1500
+) = composed {
+    val transition = rememberInfiniteTransition(label = "pulsate")
+    val scale by transition.animateFloat(
+        initialValue = minScale,
+        targetValue = maxScale,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulsateScale"
+    )
+
+    this.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
 }

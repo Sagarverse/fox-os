@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.foxos.ui.components.GlassPanel
 import com.example.foxos.ui.components.HarmonyBackground
 import com.example.foxos.ui.components.HarmonyAppIcon
 import com.example.foxos.ui.theme.FoxLauncherTheme
@@ -44,11 +45,13 @@ fun AppDrawer(
     hapticEnabled: Boolean = true,
     iconShape: String = "rounded_square",
     onHideApp: ((String) -> Unit)? = null,
+    onPinApp: ((String) -> Unit)? = null,
     wallpaperId: String = "pastel"
 ) {
     val apps by viewModel.filteredApps.collectAsState()
     val suggestedApps by viewModel.suggestedApps.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val pinnedHomeApps by viewModel.pinnedHomeApps.collectAsState()
     val notificationBadges by FoxNotificationService.notificationBadges.collectAsState()
     val colors = FoxLauncherTheme.colors
     val listState = rememberLazyListState()
@@ -142,38 +145,55 @@ fun AppDrawer(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             // Search Section with Glass Header
-            com.example.foxos.ui.components.GlassPanel(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = Color.White.copy(alpha = 0.6f),
-                blurRadius = 30.dp
-            ) {
-            Row(
+            GlassPanel(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.setSearchQuery(it) },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Search Intelligence...", color = colors.onSurface.copy(alpha = 0.4f)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = colors.primary) },
-                singleLine = true,
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = colors.primary,
-                    unfocusedBorderColor = colors.onSurface.copy(alpha = 0.2f),
-                    focusedTextColor = colors.onSurface,
-                    unfocusedTextColor = colors.onSurface
-                )
-            )
-            IconButton(onClick = onCloseDrawer) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.onSurface)
+                    .padding(top = 16.dp, bottom = 12.dp)
+                    .height(64.dp),
+                shape = RoundedCornerShape(32.dp),
+                color = Color.White.copy(alpha = 0.2f),
+                blurRadius = 40.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Search, 
+                        contentDescription = null, 
+                        tint = Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                "Search Intelligence...", 
+                                color = Color.White.copy(alpha = 0.4f),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primary),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.clearSearchQuery() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.6f))
+                        }
+                    }
+                    IconButton(onClick = onCloseDrawer) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+                }
             }
-            }
-            } // Closes GlassPanel
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -221,7 +241,9 @@ fun AppDrawer(
                                     iconShape = iconShape,
                                     packageName = app.packageName,
                                     onHideApp = onHideApp,
-                                    badgeCount = notificationBadges[app.packageName] ?: 0
+                                    onPinApp = onPinApp,
+                                    badgeCount = notificationBadges[app.packageName] ?: 0,
+                                    isPinned = pinnedHomeApps.contains(app.packageName)
                                 )
                             }
                         }
@@ -274,7 +296,9 @@ fun AppDrawer(
                                     iconShape = iconShape,
                                     packageName = app.packageName,
                                     onHideApp = onHideApp,
-                                    badgeCount = notificationBadges[app.packageName] ?: 0
+                                    onPinApp = onPinApp,
+                                    badgeCount = notificationBadges[app.packageName] ?: 0,
+                                    isPinned = pinnedHomeApps.contains(app.packageName)
                                 )
                             }
                         }

@@ -5,9 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.foxos.data.LauncherRepository
 import com.example.foxos.data.SettingsRepository
+import com.example.foxos.data.UsageRepository
 import com.example.foxos.model.AppInfo
+import com.example.foxos.search.SearchManager
+import com.example.foxos.search.SearchResult
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 sealed class LaunchEvent {
     data class DirectLaunch(val packageName: String) : LaunchEvent()
@@ -17,6 +21,11 @@ sealed class LaunchEvent {
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = LauncherRepository(application)
     private val settingsRepository = SettingsRepository(application)
+    private val usageRepository = UsageRepository(application)
+    private val searchManager = SearchManager(application)
+
+    private val _toastEvents = MutableSharedFlow<String>()
+    val toastEvents = _toastEvents.asSharedFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -40,6 +49,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
         initialValue = emptyList()
+    )
+
+    val pinnedHomeApps: StateFlow<Set<String>> = settingsRepository.homeScreenApps.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptySet()
     )
 
     // Apps visible in drawer (excluding hidden ones)
@@ -78,6 +93,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         initialValue = emptyList()
     )
 
+    val searchResults: StateFlow<List<SearchResult>> = _searchQuery
+        .debounce(300)
+        .combine(allApps) { query, apps ->
+            searchManager.search(query, apps)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     // Helper function for fuzzy matching (all query chars appear in order)
     private fun fuzzyMatch(text: String, query: String): Boolean {
         var queryIndex = 0
@@ -89,20 +115,28 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return queryIndex == query.length
     }
 
-    private val topUsedPackages: StateFlow<Set<String>> = settingsRepository.topUsedApps.stateIn(
+    private val topUsedPackages: StateFlow<Set<String>> = flow {
+        while(true) {
+            emit(usageRepository.getTopPackageNames(12))
+            delay(30000) // Refresh every 30 seconds
+        }
+    }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.Eagerly,
+        started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptySet()
     )
 
     val suggestedApps: StateFlow<List<AppInfo>> = combine(allApps, topUsedPackages) { apps, topPkgs ->
         if (topPkgs.isNotEmpty()) {
-            // Real neural usage order: sort installed apps by known top packages first
-            val topApps = apps.filter { it.packageName in topPkgs }
-            val remainder = apps.filter { it.packageName !in topPkgs }.take(8 - topApps.size)
-            (topApps + remainder).take(8)
+            val sorted = apps.filter { it.packageName in topPkgs }
+                .sortedByDescending { app -> 
+                    // This is slightly inefficient but the list is small (limit 12)
+                    topPkgs.indexOf(app.packageName).let { if (it == -1) Int.MAX_VALUE else it }
+                }
+            val remainder = apps.filter { it.packageName !in topPkgs }.take(12 - sorted.size)
+            (sorted + remainder).take(12)
         } else {
-            apps.take(8)
+            apps.take(12)
         }
     }.stateIn(
         scope = viewModelScope,
@@ -111,8 +145,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     )
 
     val predictedApps: StateFlow<Set<String>> = suggestedApps.map { apps ->
-        // Simulate "AI Sentiment" by highlighting the first two suggested apps as "Highly likely"
-        apps.take(2).map { it.packageName }.toSet()
+        // Highlight top 3 as "Neural Predictions"
+        apps.take(3).map { it.packageName }.toSet()
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -140,6 +174,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             } else {
                 repository.launchApp(packageName)
                 _launchEvents.emit(LaunchEvent.DirectLaunch(packageName))
+                // Trigger an immediate usage refresh if we want but background flow should pick it up
             }
         }
     }
@@ -166,9 +201,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+
     fun toggleStudyMode() {
         viewModelScope.launch {
             settingsRepository.setStudyMode(!isStudyModeActive.value)
+        }
+    }
+
+    fun pinToHome(packageName: String) {
+        viewModelScope.launch {
+            val current = pinnedHomeApps.value.toMutableSet()
+            if (current.add(packageName)) {
+                settingsRepository.updateHomeScreenApps(current)
+                _toastEvents.emit("App Pinned to Home")
+            }
+        }
+    }
+
+    fun removeFromHome(packageName: String) {
+        viewModelScope.launch {
+            val current = pinnedHomeApps.value.toMutableSet()
+            if (current.remove(packageName)) {
+                settingsRepository.updateHomeScreenApps(current)
+                _toastEvents.emit("App Removed from Home")
+            }
         }
     }
 }

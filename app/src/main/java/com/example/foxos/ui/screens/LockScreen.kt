@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Home
@@ -26,10 +27,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.foxos.ui.components.AppIcon
 import com.example.foxos.ui.components.GlassCard
+import com.example.foxos.ui.components.GlassPanel
+import com.example.foxos.ui.components.HarmonyAppIcon
+import com.example.foxos.ui.components.HarmonyBackground
+import com.example.foxos.ui.theme.FoxLauncherTheme
 import com.example.foxos.viewmodel.LauncherViewModel
 import com.example.foxos.viewmodel.QuickShortcutViewModel
 import com.example.foxos.viewmodel.ContextViewModel
 import com.example.foxos.viewmodel.UserContext
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -43,103 +50,124 @@ fun LockScreen(
 ) {
     val shortcuts by shortcutViewModel.shortcuts.collectAsState()
     val allApps by launcherViewModel.allApps.collectAsState()
+    val colors = FoxLauncherTheme.colors
     
     var currentTime by remember { mutableStateOf(Calendar.getInstance().time) }
     LaunchedEffect(Unit) {
         while (true) {
             currentTime = Calendar.getInstance().time
-            kotlinx.coroutines.delay(1000)
+            kotlinx.coroutines.delay(1000 * 60) // Update every minute
         }
     }
 
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    val dateFormat = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault())
 
     var offsetY by remember { mutableStateOf(0f) }
     val draggableState = rememberDraggableState { delta ->
-        offsetY += delta
-        if (offsetY < -300f) {
+        offsetY = (offsetY + delta).coerceAtMost(0f)
+        if (offsetY < -400f) {
             onUnlock()
         }
     }
 
     val currentContext by contextViewModel.currentContext.collectAsState()
 
-    val (bgColors, greeting, contextIcon) = when (currentContext) {
-        UserContext.HOME -> Triple(listOf(Color(0xFF0B0D17), Color(0xFF1A1C2E)), "Welcome Home", Icons.Default.Home)
-        UserContext.WORK -> Triple(listOf(Color(0xFF1E3C72), Color(0xFF2A5298)), "Focus Mode Active", Icons.Default.Work)
-        UserContext.COMMUTING -> Triple(listOf(Color(0xFF232526), Color(0xFF414345)), "Safe Travels", Icons.Default.DirectionsCar)
-        UserContext.SLEEPING -> Triple(listOf(Color(0xFF000000), Color(0xFF0f2027)), "Time to Rest", Icons.Default.NightlightRound)
+    val (greeting, contextIcon) = when (currentContext) {
+        UserContext.HOME -> "Welcome Home" to Icons.Default.Home
+        UserContext.WORK -> "Focus Mode" to Icons.Default.Work
+        UserContext.COMMUTING -> "On the Go" to Icons.Default.DirectionsCar
+        UserContext.SLEEPING -> "Sweet Dreams" to Icons.Default.NightlightRound
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(colors = bgColors)
-            )
             .draggable(
                 state = draggableState,
                 orientation = Orientation.Vertical,
-                onDragStopped = { offsetY = 0f }
+                onDragStopped = { 
+                    if (offsetY > -400f) offsetY = 0f 
+                }
             )
             .offset { IntOffset(0, offsetY.roundToInt()) }
     ) {
+        HarmonyBackground(wallpaperId = "cosmic") // Use a premium wallpaper
+        
+        // Dark overlay for legibility
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)))
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(horizontal = 40.dp, vertical = 80.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(80.dp))
-            
             Text(
                 text = timeFormat.format(currentTime),
                 style = MaterialTheme.typography.displayLarge.copy(
-                    fontSize = 80.sp,
+                    fontSize = 88.sp,
                     fontWeight = FontWeight.Light,
-                    color = Color.White
+                    color = Color.White,
+                    letterSpacing = (-2).sp
                 )
             )
             Text(
-                text = dateFormat.format(currentTime),
-                style = MaterialTheme.typography.titleLarge.copy(
-                    color = Color.White.copy(alpha = 0.7f)
+                text = dateFormat.format(currentTime).uppercase(),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 2.sp
                 )
             )
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             
-            // Context Badge
-            GlassCard(modifier = Modifier.padding(16.dp)) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(contextIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(greeting, color = Color.White, fontWeight = FontWeight.Medium)
+            // Context Badge with Glassmorphism
+            GlassPanel(
+                modifier = Modifier,
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White.copy(alpha = 0.15f),
+                blurRadius = 20.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(contextIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = greeting,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Quick Shortcuts Row
+            // Quick Shortcuts Row - Enhanced
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 64.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.Center
             ) {
-                shortcuts.forEach { shortcut ->
+                shortcuts.take(4).forEach { shortcut ->
                     val app = allApps.find { it.packageName == shortcut.packageName }
                     if (app != null) {
                         Box(
                             modifier = Modifier
+                                .padding(horizontal = 12.dp)
                                 .size(64.dp)
+                                .background(Color.White.copy(alpha = 0.15f), CircleShape)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.1f))
-                                .padding(4.dp)
                         ) {
-                            AppIcon(
-                                app = app,
+                            HarmonyAppIcon(
+                                icon = app.icon?.toBitmap()?.asImageBitmap(),
+                                label = "",
                                 onClick = {
                                     launcherViewModel.launchApp(app.packageName)
                                     onUnlock()
@@ -151,17 +179,22 @@ fun LockScreen(
                 }
             }
 
-            Icon(
-                Icons.Default.LockOpen,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(32.dp)
-            )
-            Text(
-                "Swipe up to unlock",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.5f)
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Default.LockOpen,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Swipe up to unlock",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = Color.White.copy(alpha = 0.7f),
+                        letterSpacing = 1.sp
+                    )
+                )
+            }
         }
     }
 }

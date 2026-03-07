@@ -19,14 +19,8 @@ import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -36,8 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import com.example.foxos.model.GestureAction
+import com.example.foxos.search.SearchResultType
 import com.example.foxos.ui.components.*
 import com.example.foxos.ui.screens.*
 import com.example.foxos.ui.theme.FoxThemeWrapper
@@ -49,7 +43,7 @@ import com.example.foxos.worker.UsageWorker
 import java.util.concurrent.TimeUnit
 
 enum class Screen {
-    Home, Drawer, Settings, Tasks, Focus, LockSettings, Lock, QuickNotes, Gesture, Black, SuperHub, Notifications, StudentHub, QuickDock
+    Home, Drawer, Settings, Tasks, Focus, LockSettings, Lock, QuickNotes, Gesture, Black, QuickDock, StudentHub, Notifications
 }
 
 class MainActivity : FragmentActivity() {
@@ -66,8 +60,9 @@ class MainActivity : FragmentActivity() {
     private val voiceViewModel: VoiceAssistantViewModel by viewModels()
     private val contextViewModel: ContextViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
-    private val studentHubViewModel: StudentHubViewModel by viewModels()
     private val mediaViewModel: MediaViewModel by viewModels()
+    private val studentHubViewModel: StudentHubViewModel by viewModels()
+
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 1001
@@ -85,13 +80,9 @@ class MainActivity : FragmentActivity() {
             LaunchedEffect(Unit) {
                 launcherViewModel.launchEvents.collect { event ->
                     when (event) {
-                        is LaunchEvent.DirectLaunch -> {
-                            // Already launched in repo, or we could do nothing
-                        }
+                        is LaunchEvent.DirectLaunch -> {}
                         is LaunchEvent.RequireBiometric -> {
                             showBiometricPrompt(
-                                title = "App Vault",
-                                subtitle = "Authenticate to unlock",
                                 onSuccess = {
                                     launcherViewModel.launchAppDirectly(event.packageName)
                                 },
@@ -104,7 +95,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
             
-            // Fetch weather on launch
             LaunchedEffect(Unit) {
                 weatherViewModel.fetchWeather(this@MainActivity)
             }
@@ -115,38 +105,36 @@ class MainActivity : FragmentActivity() {
                     var isSidebarOpen by remember { mutableStateOf(false) }
                     var showFloatingNotes by remember { mutableStateOf(false) }
                     
-                    // Persist floating notes using SettingsRepository
                     val floatingNotesText by noteViewModel.floatingNoteContent.collectAsState()
                     
                     var showUniversalSearch by remember { mutableStateOf(false) }
                     var showCustomizationSheet by remember { mutableStateOf(false) }
-                    var currentHomePage by remember { mutableStateOf(1) }
+                    var currentHomePage by remember { mutableIntStateOf(0) }
                     
                     val searchQuery by launcherViewModel.searchQuery.collectAsState()
-                    val searchResults by launcherViewModel.filteredApps.collectAsState()
+                    val searchResults by launcherViewModel.searchResults.collectAsState()
                     val isDesktopModeEnabled by controlViewModel.isDesktopModeEnabled.collectAsState()
                     
-                    // Settings
                     val doubleTapToLock by settingsViewModel.doubleTapToLock.collectAsState()
                     val gridColumns by settingsViewModel.gridColumns.collectAsState()
                     val showLabels by settingsViewModel.showLabels.collectAsState()
                     val hapticFeedback by settingsViewModel.hapticFeedback.collectAsState()
                     val showClockOnHome by settingsViewModel.showClockOnHome.collectAsState()
                     
-                    // Tasks count for sidebar badge
                     val allTasks by taskViewModel.allTasks.collectAsState()
                     val pendingTaskCount = allTasks.count { !it.isCompleted }
                     
-                    // Media info for music widget
                     val mediaInfo by mediaViewModel.mediaInfo.collectAsState()
                     
                     val wallpaperId by settingsViewModel.wallpaperId.collectAsState()
+                    val wallpaperStyle by settingsViewModel.wallpaperStyle.collectAsState()
                     val homePageCount by settingsViewModel.homePageCount.collectAsState()
                     val iconShape by settingsViewModel.iconShape.collectAsState()
                     val currentTheme by themeViewModel.theme.collectAsState()
                     val sidebarApps by settingsViewModel.sidebarApps.collectAsState()
                     val dockApps by settingsViewModel.dockApps.collectAsState()
                     val homeScreenApps by settingsViewModel.homeScreenApps.collectAsState()
+                    val isMinimalisticMode by settingsViewModel.isMinimalisticMode.collectAsState()
 
                     BackHandler(enabled = currentScreen != Screen.Home || isSidebarOpen || showFloatingNotes || showUniversalSearch || showCustomizationSheet) {
                         when {
@@ -172,13 +160,7 @@ class MainActivity : FragmentActivity() {
                                 targetState = currentScreen,
                                 transitionSpec = {
                                     val springSpec = spring<Float>(stiffness = 300f, dampingRatio = 0.6f)
-                                    val offsetSpringSpec = spring<IntOffset>(stiffness = 300f, dampingRatio = 0.6f)
-                                    when (targetState) {
-                                        Screen.SuperHub, Screen.Notifications -> slideInVertically(animationSpec = spring(stiffness = 400f, dampingRatio = 0.8f)) { height -> -height } + fadeIn() togetherWith slideOutVertically(animationSpec = spring(stiffness = 400f, dampingRatio = 0.8f)) { height -> -height } + fadeOut()
-                                        Screen.Drawer -> scaleIn(initialScale = 0.8f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.8f), animationSpec = springSpec) + fadeIn(animationSpec = tween(200)) togetherWith scaleOut(targetScale = 0.8f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.8f), animationSpec = springSpec) + fadeOut(animationSpec = tween(200))
-                                        Screen.Gesture -> slideInHorizontally(animationSpec = offsetSpringSpec) + fadeIn() togetherWith slideOutHorizontally(animationSpec = offsetSpringSpec) + fadeOut()
-                                        else -> scaleIn(initialScale = 0.5f, animationSpec = springSpec) + fadeIn(animationSpec = tween(200)) togetherWith scaleOut(targetScale = 0.5f, animationSpec = springSpec) + fadeOut(animationSpec = tween(200))
-                                    }
+                                    scaleIn(initialScale = 0.5f, animationSpec = springSpec) + fadeIn(animationSpec = tween(200)) togetherWith scaleOut(targetScale = 0.5f, animationSpec = springSpec) + fadeOut(animationSpec = tween(200))
                                 },
                                 label = "FuturisticScreenTransition"
                             ) { screen ->
@@ -188,7 +170,7 @@ class MainActivity : FragmentActivity() {
                                             DesktopHomeScreen(
                                                 launcherViewModel = launcherViewModel,
                                                 controlViewModel = controlViewModel,
-                                                onOpenSuperHub = { currentScreen = Screen.SuperHub },
+                                                onOpenSuperHub = { /* Retired in favor of Neural Search */ },
                                                 onOpenDrawer = { currentScreen = Screen.Drawer }
                                             )
                                         } else {
@@ -198,7 +180,6 @@ class MainActivity : FragmentActivity() {
                                                 weatherViewModel = weatherViewModel,
                                                 voiceViewModel = voiceViewModel,
                                                 controlViewModel = controlViewModel,
-                                                pinnedHomeApps = homeScreenApps,
                                                 onOpenDrawer = { currentScreen = Screen.Drawer },
                                                 onOpenSettings = { currentScreen = Screen.Settings },
                                                 onOpenTasks = { currentScreen = Screen.Tasks },
@@ -206,8 +187,10 @@ class MainActivity : FragmentActivity() {
                                                 onOpenLock = { currentScreen = Screen.Lock },
                                                 onOpenReference = { openReferenceMaterial() },
                                                 onOpenQuickNotes = { currentScreen = Screen.QuickNotes },
-                                                onOpenCustomization = { showCustomizationSheet = true },
+                                                onOpenAssistant = { voiceViewModel.startListening() },
+                                                onOpenNotifications = { currentScreen = Screen.Notifications },
                                                 onOpenStudentHub = { currentScreen = Screen.StudentHub },
+                                                onOpenCustomization = { showCustomizationSheet = true },
                                                 pendingTaskCount = pendingTaskCount,
                                                 mediaTitle = mediaInfo.title,
                                                 mediaArtist = mediaInfo.artist,
@@ -216,39 +199,23 @@ class MainActivity : FragmentActivity() {
                                                 onPageChanged = { currentHomePage = it },
                                                 showClockOnHome = showClockOnHome,
                                                 wallpaperId = wallpaperId,
-                                                // Gesture callbacks
                                                 onSwipeUp = { fingerCount ->
                                                     currentScreen = if (fingerCount >= 2) Screen.QuickDock else Screen.Drawer
                                                 },
-                                                onSwipeDownFromTop = { isLeft ->
-                                                    currentScreen = if (isLeft) Screen.Notifications else Screen.SuperHub
+                                                onSwipeDownFromTop = { 
+                                                    showUniversalSearch = true
                                                 },
                                                 onSwipeDownFromCenter = { showUniversalSearch = true },
                                                 onTripleTap = { if (doubleTapToLock) lockDevice() },
                                                 onLongPress = { showCustomizationSheet = true },
                                                 onOpenSidebar = { isSidebarOpen = true },
-                                                onCloseSidebar = { isSidebarOpen = false }
+                                                onCloseSidebar = { isSidebarOpen = false },
+                                                onRemoveApp = { launcherViewModel.removeFromHome(it) },
+                                                pinnedHomeApps = homeScreenApps,
+                                                isMinimalistic = isMinimalisticMode
                                             )
                                         }
                                     }
-                                    Screen.SuperHub -> SuperHubScreen(
-                                        controlViewModel = controlViewModel,
-                                        pomodoroViewModel = pomodoroViewModel,
-                                        studentHubViewModel = studentHubViewModel,
-                                        onClose = { currentScreen = Screen.Home }
-                                    )
-                                    Screen.Notifications -> NotificationPanelScreen(
-                                        onClose = { currentScreen = Screen.Home }
-                                    )
-                                    Screen.Gesture -> GesturePage(
-                                        onGestureComplete = { points ->
-                                            val action = gestureViewModel.recognizeGesture(points)
-                                            if (action != null) {
-                                                handleGestureAction(action)
-                                                currentScreen = Screen.Home
-                                            }
-                                        }
-                                    )
                                     Screen.Drawer -> AppDrawer(
                                         viewModel = launcherViewModel,
                                         onCloseDrawer = { currentScreen = Screen.Home },
@@ -257,6 +224,7 @@ class MainActivity : FragmentActivity() {
                                         hapticEnabled = hapticFeedback,
                                         iconShape = iconShape,
                                         onHideApp = { packageName -> launcherViewModel.hideApp(packageName) },
+                                        onPinApp = { packageName -> launcherViewModel.pinToHome(packageName) },
                                         wallpaperId = wallpaperId
                                     )
                                     Screen.Settings -> SettingsScreen(
@@ -296,10 +264,6 @@ class MainActivity : FragmentActivity() {
                                             .background(Color.Black)
                                             .pointerInput(Unit) { detectTapGestures(onDoubleTap = { currentScreen = Screen.Home }) }
                                     )
-                                    Screen.StudentHub -> StudentHubPage(
-                                        viewModel = studentHubViewModel,
-                                        onBack = { currentScreen = Screen.Home }
-                                    )
                                     Screen.QuickDock -> QuickDockDrawer(
                                         apps = if (dockApps.isNotEmpty()) {
                                             allApps.filter { dockApps.contains(it.packageName) }
@@ -312,12 +276,20 @@ class MainActivity : FragmentActivity() {
                                         },
                                         onClose = { currentScreen = Screen.Home }
                                     )
+                                    Screen.Notifications -> NotificationsScreen(
+                                        onBack = { currentScreen = Screen.Home }
+                                    )
+                                    Screen.StudentHub -> StudentHubScreen(
+                                        viewModel = studentHubViewModel,
+                                        onBack = { currentScreen = Screen.Home }
+                                    )
                                     else -> {}
+
                                 }
                             }
                         }
 
-                        // Premium Edge Sidebar Overlay
+
                         AnimatedVisibility(
                             visible = isSidebarOpen,
                             enter = slideInHorizontally { it } + fadeIn(),
@@ -326,7 +298,6 @@ class MainActivity : FragmentActivity() {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { isSidebarOpen = false } })
                                 Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.End) {
-                                    // Use selected sidebar apps or default to first 8
                                     val sidebarAppsList = if (sidebarApps.isNotEmpty()) {
                                         allApps.filter { sidebarApps.contains(it.packageName) }
                                     } else {
@@ -343,7 +314,6 @@ class MainActivity : FragmentActivity() {
                             }
                         }
 
-                        // Floating Notes Window
                         if (showFloatingNotes) {
                             FloatingWindow(
                                 title = "Quick Focus Notes",
@@ -366,26 +336,34 @@ class MainActivity : FragmentActivity() {
                             }
                         }
 
-                        UniversalSearchOverlay(
+                        NeuralPulseSearch(
                             isVisible = showUniversalSearch,
                             searchQuery = searchQuery,
                             onQueryChange = { launcherViewModel.setSearchQuery(it) },
                             searchResults = searchResults,
-                            onAppClick = { app ->
-                                launcherViewModel.launchApp(app.packageName)
+                            onResultClick = { result ->
+                                when (result.type) {
+                                    SearchResultType.APP -> result.packageName?.let { launcherViewModel.launchApp(it) }
+                                    SearchResultType.SETTING, 
+                                    SearchResultType.CONTACT, 
+                                    SearchResultType.WHATSAPP, 
+                                    SearchResultType.INSTAGRAM, 
+                                    SearchResultType.WEB -> result.intent?.let { startActivity(it) }
+                                }
                                 showUniversalSearch = false
                                 launcherViewModel.clearSearchQuery()
                             },
                             onClose = {
                                 showUniversalSearch = false
                                 launcherViewModel.clearSearchQuery()
-                            }
+                            },
+                            controlViewModel = controlViewModel
                         )
 
-                        // Customization Sheet
                         CustomizationSheet(
                             isVisible = showCustomizationSheet,
                             currentWallpaper = wallpaperId,
+                            currentWallpaperStyle = wallpaperStyle,
                             currentTheme = currentTheme,
                             gridColumns = gridColumns,
                             totalPages = homePageCount,
@@ -396,6 +374,7 @@ class MainActivity : FragmentActivity() {
                             homeScreenApps = homeScreenApps,
                             onDismiss = { showCustomizationSheet = false },
                             onWallpaperSelected = { settingsViewModel.updateWallpaperId(it) },
+                            onWallpaperStyleSelected = { settingsViewModel.updateWallpaperStyle(it) },
                             onThemeSelected = { themeViewModel.setTheme(it) },
                             onGridColumnsChanged = { settingsViewModel.updateGridColumns(it) },
                             onAddPage = { settingsViewModel.updateHomePageCount(homePageCount + 1) },
@@ -420,27 +399,12 @@ class MainActivity : FragmentActivity() {
         }
         try {
             startActivity(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Toast.makeText(this, "No PDF Reader found", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun handleGestureAction(action: String) {
-        when (action) {
-            GestureAction.START_POMODORO.name -> {
-                pomodoroViewModel.startTimer()
-                Toast.makeText(this, "Pomodoro Started!", Toast.LENGTH_SHORT).show()
-            }
-            GestureAction.TOGGLE_STUDY_MODE.name -> {
-                launcherViewModel.toggleStudyMode()
-                Toast.makeText(this, "Study Mode Toggled", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     private fun showBiometricPrompt(
-        title: String,
-        subtitle: String,
         onSuccess: () -> Unit,
         onError: () -> Unit
     ) {
@@ -464,8 +428,8 @@ class MainActivity : FragmentActivity() {
             })
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(title)
-            .setSubtitle(subtitle)
+            .setTitle("App Vault")
+            .setSubtitle("Authenticate to unlock")
             .setNegativeButtonText("Cancel")
             .build()
 
@@ -489,7 +453,6 @@ class MainActivity : FragmentActivity() {
         if (devicePolicyManager.isAdminActive(componentName)) {
             devicePolicyManager.lockNow()
         } else {
-            // Request device admin permission
             val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                 putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
                 putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Enable device admin to use double-tap to lock")
@@ -511,11 +474,14 @@ class MainActivity : FragmentActivity() {
             permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
         
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) 
                 != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
-            }
+            permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) 
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.READ_CONTACTS)
         }
         
         if (permissionsToRequest.isNotEmpty()) {
@@ -538,10 +504,8 @@ class MainActivity : FragmentActivity() {
                 grantResults[index] != PackageManager.PERMISSION_GRANTED
             }
             if (deniedPermissions.isNotEmpty()) {
-                // Some permissions were denied, but the app can still function
-                // Just show a toast for user awareness
                 Toast.makeText(
-                    this, 
+                    applicationContext, 
                     "Some features may be limited without permissions", 
                     Toast.LENGTH_SHORT
                 ).show()

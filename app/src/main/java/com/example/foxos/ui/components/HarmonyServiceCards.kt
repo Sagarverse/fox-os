@@ -207,6 +207,8 @@ fun HarmonyControlCenter(
     airplaneModeEnabled: Boolean = false,
     flashlightEnabled: Boolean = false,
     dndEnabled: Boolean = false,
+    rotateEnabled: Boolean = false,
+    locationEnabled: Boolean = false,
     brightness: Float = 0.5f,
     onWifiToggle: () -> Unit = {},
     onBluetoothToggle: () -> Unit = {},
@@ -214,6 +216,8 @@ fun HarmonyControlCenter(
     onAirplaneModeToggle: () -> Unit = {},
     onFlashlightToggle: () -> Unit = {},
     onDndToggle: () -> Unit = {},
+    onRotateToggle: () -> Unit = {},
+    onLocationToggle: () -> Unit = {},
     onBrightnessChange: (Float) -> Unit = {}
 ) {
     val colors = FoxLauncherTheme.colors
@@ -284,14 +288,14 @@ fun HarmonyControlCenter(
             HarmonyQuickToggle(
                 icon = Icons.Default.ScreenRotation,
                 label = "Rotate",
-                isActive = false,
-                onClick = {}
+                isActive = rotateEnabled,
+                onClick = onRotateToggle
             )
             HarmonyQuickToggle(
                 icon = Icons.Default.LocationOn,
                 label = "Location",
-                isActive = true,
-                onClick = {}
+                isActive = locationEnabled,
+                onClick = onLocationToggle
             )
         }
         
@@ -299,6 +303,8 @@ fun HarmonyControlCenter(
         
         // Brightness Slider
         Column {
+            Text("BRIGHTNESS", style = MaterialTheme.typography.labelSmall, color = colors.onSurface.copy(alpha = 0.4f), fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
