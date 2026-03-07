@@ -63,7 +63,8 @@ object FoxAIIntelligence {
         try {
             val fullPrompt = "$SYSTEM_PROMPT\n\nUser request: \"$command\"\nJSON Output:"
             val responseFlow = GenerativeAIEngine.generateStreamingResponse(fullPrompt)
-            val fullResponse = responseFlow.toList().lastOrNull() ?: return AssistantIntent.Unknown
+            val fullResponse = responseFlow.toList().joinToString("")
+            if (fullResponse.isEmpty()) return AssistantIntent.Unknown
             
             // Extract JSON from response (sometimes AI wraps in ```json)
             val jsonStr = extractJson(fullResponse)

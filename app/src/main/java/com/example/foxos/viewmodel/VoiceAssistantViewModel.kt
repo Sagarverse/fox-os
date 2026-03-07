@@ -13,6 +13,9 @@ import com.example.foxos.data.SettingsRepository
 import com.example.foxos.utils.GenerativeAIEngine
 import com.example.foxos.ai.FoxAIIntelligence
 import com.example.foxos.ai.AssistantIntent
+import com.example.foxos.ai.VoiceSpeaker
+import android.media.AudioManager
+import android.media.ToneGenerator
 import com.example.foxos.viewmodel.ControlCenterViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +47,9 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
     private val weatherViewModel = WeatherViewModel()
     private val taskViewModel = TaskViewModel(application)
     private val noteViewModel = NoteViewModel(application)
+    
+    private val voiceSpeaker = VoiceSpeaker(application)
+    private val toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
     
     private val _state = MutableStateFlow<AssistantState>(AssistantState.Idle)
     val state: StateFlow<AssistantState> = _state.asStateFlow()
@@ -141,6 +147,11 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
     fun startListening() {
         timerJob?.cancel()
         _recognizedText.value = ""
+        voiceSpeaker.stop()
+        
+        // Play Siri-like listening chime
+        toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+        
         _state.value = AssistantState.Listening
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -163,6 +174,7 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
         speechRecognizer.stopListening()
         speechRecognizer.cancel()
         timerJob?.cancel()
+        voiceSpeaker.stop()
         _recognizedText.value = ""
         _state.value = AssistantState.Idle
         // Small delay to ensure previous instance is cleaned up
@@ -275,6 +287,7 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
             }
             is AssistantIntent.Answer -> {
                 _state.value = AssistantState.Success(intent.text)
+                voiceSpeaker.speak(intent.text)
             }
             is AssistantIntent.Unknown -> {
                 generateAIResponse(originalCommand)
@@ -461,6 +474,7 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
         try {
             GenerativeAIEngine.generateStreamingResponse(command).collect { chunk ->
                 _state.value = AssistantState.Generating(chunk)
+                voiceSpeaker.speak(chunk)
             }
             val finalState = _state.value
             if (finalState is AssistantState.Generating) {
@@ -483,6 +497,8 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
                 }
             }
             _state.value = AssistantState.Success("⏰ Timer completed!\n$label is done.")
+            voiceSpeaker.speak("Your $label timer is done!")
+            toneGenerator.startTone(ToneGenerator.TONE_CDMA_ABBR_ALERT, 1000)
         }
     }
     
@@ -500,8 +516,11 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
             if (targetApp != null) {
                 repository.launchApp(targetApp.packageName)
                 _state.value = AssistantState.Success(successMessage, category)
+                voiceSpeaker.speak(successMessage, flush = true)
             } else {
-                _state.value = AssistantState.Error("I couldn't find an app for that intent ($targetAppName)")
+                val errorMsg = "I couldn't find an app for that intent ($targetAppName)"
+                _state.value = AssistantState.Error(errorMsg)
+                voiceSpeaker.speak(errorMsg)
             }
         }
     }
@@ -527,5 +546,7 @@ class VoiceAssistantViewModel(application: Application) : AndroidViewModel(appli
     override fun onCleared() {
         super.onCleared()
         speechRecognizer.destroy()
+        voiceSpeaker.shutdown()
+        toneGenerator.release()
     }
 }

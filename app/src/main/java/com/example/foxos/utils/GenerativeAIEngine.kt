@@ -159,9 +159,9 @@ object GenerativeAIEngine {
         
         if (isApiKeySet()) {
             try {
-                val systemPrompt = """You are Fox, a helpful AI assistant built into FoxOS, a custom Android launcher. 
-                    |You help users with their phone, answer questions, and provide concise, friendly responses.
-                    |Keep responses brief and helpful. You can help open apps, provide information, and assist with tasks.
+                val systemPrompt = """You are Fox, an advanced AI assistant deeply integrated into FoxOS. 
+                    |Speak directly to the user in a natural, concise, and friendly tone. Start answering immediately without repetitive robotic greetings.
+                    |Use **bold** for emphasis on important words, but do not use any other markdown formatting.
                     |Current user request: $prompt""".trimMargin()
                 
                 Log.d("GenerativeAIEngine", "Calling Gemini API with prompt length: ${systemPrompt.length}")
@@ -171,8 +171,8 @@ object GenerativeAIEngine {
                 response?.collect { chunk ->
                     chunk.text?.let { text ->
                         fullText += text
-                        Log.d("GenerativeAIEngine", "Received chunk, total length: ${fullText.length}")
-                        emit(fullText)
+                        Log.d("GenerativeAIEngine", "Received chunk length: ${text.length}")
+                        emit(text)
                     }
                 }
                 
@@ -231,7 +231,7 @@ object GenerativeAIEngine {
         
         val words = finalResponse.split(" ")
         for (i in words.indices) {
-            val chunk = words.subList(0, i + 1).joinToString(" ")
+            val chunk = words[i] + if (i < words.size - 1) " " else ""
             emit(chunk)
             delay((10..40).random().toLong())
         }
