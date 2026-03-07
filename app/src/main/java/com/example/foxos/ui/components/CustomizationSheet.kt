@@ -97,11 +97,14 @@ fun CustomizationSheet(
     onCustomWallpaperPicked: (Uri) -> Unit,
     onIconShapeChanged: (String) -> Unit,
     onSidebarAppsChanged: (Set<String>) -> Unit = {},
-    onHomeScreenAppsChanged: (Set<String>) -> Unit = {}
+    onHomeScreenAppsChanged: (Set<String>) -> Unit = {},
+    dockApps: Set<String> = emptySet(),
+    onDockAppsChanged: (Set<String>) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showSidebarAppSelector by remember { mutableStateOf(false) }
     var showHomeAppSelector by remember { mutableStateOf(false) }
+    var showDockAppSelector by remember { mutableStateOf(false) }
     
     val wallpaperPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -347,7 +350,13 @@ fun CustomizationSheet(
                                     )
                                     ModularAppControl(
                                         modifier = Modifier.weight(1f),
-                                        title = "Home",
+                                        title = "Quick Apps",
+                                        count = dockApps.size,
+                                        onClick = { showDockAppSelector = true }
+                                    )
+                                    ModularAppControl(
+                                        modifier = Modifier.weight(1f),
+                                        title = "Home Apps",
                                         count = homeScreenApps.size,
                                         onClick = { showHomeAppSelector = true }
                                     )
@@ -381,6 +390,20 @@ fun CustomizationSheet(
             onAppsSelected = { selected: Set<String> ->
                 onHomeScreenAppsChanged(selected)
                 showHomeAppSelector = false
+            }
+        )
+    }
+    
+    if (showDockAppSelector) {
+        PremiumAppSelector(
+            allApps = allApps,
+            selectedApps = dockApps,
+            title = "Select Quick Apps",
+            maxApps = 8,
+            onDismiss = { showDockAppSelector = false },
+            onAppsSelected = { selected ->
+                onDockAppsChanged(selected)
+                showDockAppSelector = false
             }
         )
     }

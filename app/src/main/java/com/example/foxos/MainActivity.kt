@@ -206,6 +206,20 @@ class MainActivity : FragmentActivity() {
                                                     showUniversalSearch = true
                                                 },
                                                 onSwipeDownFromCenter = { showUniversalSearch = true },
+                                                onSwipeLeft = { 
+                                                    if (homePageCount == 1) { 
+                                                        isSidebarOpen = true 
+                                                    } else {
+                                                        if (currentHomePage < homePageCount - 1) currentHomePage++
+                                                    }
+                                                },
+                                                onSwipeRight = { 
+                                                    if (homePageCount == 1) {
+                                                        currentScreen = Screen.Tasks
+                                                    } else {
+                                                        if (currentHomePage > 0) currentHomePage--
+                                                    }
+                                                },
                                                 onTripleTap = { if (doubleTapToLock) lockDevice() },
                                                 onLongPress = { showCustomizationSheet = true },
                                                 onOpenSidebar = { isSidebarOpen = true },
@@ -384,7 +398,9 @@ class MainActivity : FragmentActivity() {
                             },
                             onIconShapeChanged = { settingsViewModel.updateIconShape(it) },
                             onSidebarAppsChanged = { settingsViewModel.updateSidebarApps(it) },
-                            onHomeScreenAppsChanged = { settingsViewModel.updateHomeScreenApps(it) }
+                            onHomeScreenAppsChanged = { settingsViewModel.updateHomeScreenApps(it) },
+                            dockApps = dockApps,
+                            onDockAppsChanged = { settingsViewModel.updateDockApps(it) }
                         )
                     }
                 }

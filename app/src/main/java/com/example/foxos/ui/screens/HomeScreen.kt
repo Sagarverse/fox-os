@@ -65,6 +65,8 @@ fun HomeScreen(
     onSwipeUp: (fingerCount: Int) -> Unit = {},
     onSwipeDownFromTop: () -> Unit = {},
     onSwipeDownFromCenter: () -> Unit = {},
+    onSwipeLeft: () -> Unit = {},
+    onSwipeRight: () -> Unit = {},
     onTripleTap: () -> Unit = {},
     onLongPress: () -> Unit = {},
     onOpenSidebar: () -> Unit = {},
@@ -152,7 +154,7 @@ fun HomeScreen(
                             val dragAmountX = averageX - startPos.x
                             val dragAmountY = averageY - startPos.y
                             
-                            // Only trigger vertical swipes if drag is primarily vertical and exceeds threshold
+                            // Detect vertical swipes
                             if (abs(dragAmountY) > 80f && abs(dragAmountY) > abs(dragAmountX) * 2) { 
                                 hasSwiped = true
                                 if (dragAmountY < 0) {
@@ -163,6 +165,15 @@ fun HomeScreen(
                                     } else {
                                         onSwipeDownFromCenter()
                                     }
+                                }
+                            }
+                            // Detect horizontal swipes
+                            else if (abs(dragAmountX) > 80f && abs(dragAmountX) > abs(dragAmountY) * 2) {
+                                hasSwiped = true
+                                if (dragAmountX < 0) {
+                                    onSwipeLeft()
+                                } else {
+                                    onSwipeRight()
                                 }
                             }
                         }
